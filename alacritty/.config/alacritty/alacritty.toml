@@ -1,0 +1,25 @@
+[window]
+# 0.0 is fully transparent, 1.0 is opaque. 
+# 0.8 is usually the sweet spot for translucency.
+opacity = 0.8
+padding = { x = 10, y = 10 }
+dynamic_title = true
+
+[font]
+# Use the font name exactly as it appears in your system
+normal = { family = "JetBrainsMono Nerd Font", style = "Regular" }
+size = 12.0
+
+[colors.primary]
+background = '#1a1b26' # Deep dark blue/black
+foreground = '#a9b1d6'
+
+[colors.normal]
+black =   '#32344a'
+red =     '#f7768e'
+green =   '#9ece6a'
+yellow =  '#e0af68'
+blue =    '#7aa2f7'
+magenta = '#ad8ee6'
+cyan =    '#449dab'
+white =   '#787c99'
