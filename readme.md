@@ -33,6 +33,6 @@ To replicate this environment on a fresh Ubuntu installation:
 
    1. Restart your terminal.
 
-   2. Run p10k configure if the prompt wizard doesn't start automatically.
+   2. Run ```p10k configure``` if the prompt wizard doesn't start automatically.
 
    3. Log out and back in to finalize the default shell change.
