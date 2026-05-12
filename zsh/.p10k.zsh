@@ -1743,3 +1743,18 @@ typeset -g POWERLEVEL9K_CONFIG_FILE=${${(%):-%x}:a}
 
 (( ${#p10k_config_opts} )) && setopt ${p10k_config_opts[@]}
 'builtin' 'unset' 'p10k_config_opts'
+
+function p10k-on-pre-prompt() {
+  # 1. Hide the first line (the one with the directory/git status)
+  # 2. But specifically keep the 'time' segment if it's on the right
+  p10k display '1'=empty 'frame'=empty
+  
+  # If you want to keep the right side of the first line (the time), 
+  # we tell p10k to keep '2' (the right prompt) but hide specific segments.
+  p10k display '2'=show
+  
+  # Hide every segment on the right prompt EXCEPT for the time
+  # Note: Replace 'time' with the actual name of your time segment 
+  # if you customized it (usually it is just 'time').
+  p10k display '*/right/*'=hide '*/right/time'=show
+}
