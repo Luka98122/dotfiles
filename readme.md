@@ -9,6 +9,7 @@ My personal development environment configuration for **Ubuntu 24.04 LTS (Noble 
 - **Font:** [JetBrainsMono Nerd Font](https://www.nerdfonts.com/)
 - **System Info:** [Fastfetch](https://github.com/fastfetch-cli/fastfetch)
 - **Dotfile Management:** [GNU Stow](https://www.gnu.org/software/stow/)
+- **Curl:** Repository also installs [curl](https://curl.se/)
 
 ## Key Features
 - **Translucent Aesthetic:** Tokyo Night color palette with 80% background opacity.
