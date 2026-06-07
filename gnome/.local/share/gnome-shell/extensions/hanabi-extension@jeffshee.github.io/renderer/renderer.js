@@ -59,8 +59,9 @@ const haveGstAudio = GstAudio !== null;
 // ContentFit is available from Gtk 4.8+
 const haveContentFit = isGtkVersionAtLeast(4, 8);
 
-// Use glsinkbin for Gst 1.24+
-const useGstGL = isGstVersionAtLeast(1, 24);
+// Disabled: glsinkbin causes VRAM leak on wallpaper cycling via set_uri().
+// The persistent glsinkbin retains decoded GL textures from old pipelines.
+const useGstGL = false;
 
 const applicationId = 'io.github.jeffshee.HanabiRenderer';
 
@@ -474,6 +475,12 @@ const HanabiRenderer = GObject.registerClass(
             let file = Gio.File.new_for_path(videoPath);
             this._play.set_uri(file.get_uri());
 
+            try {
+                this._pipeline = this._play.pipeline;
+            } catch (e) {
+                this._pipeline = null;
+            }
+
             this.setPlay();
             this.setAutoWallpaper();
 
@@ -579,15 +586,21 @@ const HanabiRenderer = GObject.registerClass(
 
         setFilePath(_videoPath) {
             let file = Gio.File.new_for_path(_videoPath);
+            let newUri = file.get_uri();
+            let currentUri = '';
             if (this._play) {
-                this._play.set_uri(file.get_uri());
+                try {
+                    currentUri = this._pipeline ? this._pipeline.uri : '';
+                } catch (e) {}
             } else if (this._media) {
-                // Reset the stream when switching the file,
-                // otherwise `play()` is not playing for some reason.
-                this._media.stream_unprepared();
-                this._media.file = file;
+                try {
+                    currentUri = this._media.file ? this._media.file.get_uri() : '';
+                } catch (e) {}
             }
-            this.setPlay();
+            if (currentUri && currentUri === newUri)
+                return;
+            console.debug(`setFilePath: restarting renderer to change wallpaper`);
+            this.quit();
         }
 
         setPlay() {
@@ -605,11 +618,8 @@ const HanabiRenderer = GObject.registerClass(
         }
 
         setAutoWallpaper() {
-            // Index to keep track of the current video
-            let currentIndex = 0;
             let videoPaths = [];
             let dir = Gio.File.new_for_path(changeWallpaperDirectoryPath);
-            // Check if dir exists and is a directory
             if (dir.query_file_type(Gio.FileQueryInfoFlags.NONE, null) !== Gio.FileType.DIRECTORY)
                 return;
 
@@ -619,7 +629,6 @@ const HanabiRenderer = GObject.registerClass(
                 null
             );
 
-            // Get files to push into array
             let fileInfo;
             while ((fileInfo = enumerator.next_file(null))) {
                 if (fileInfo.get_content_type().startsWith('video/')) {
@@ -630,6 +639,19 @@ const HanabiRenderer = GObject.registerClass(
             if (videoPaths.length === 0)
                 return;
             videoPaths = videoPaths.sort();
+
+            // Index to keep track of the current video
+            let currentIndex = 0;
+
+            let currentIdx = videoPaths.findIndex(p => p === videoPath);
+            if (currentIdx !== -1) {
+                if (changeWallpaperMode === 0)
+                    currentIndex = (currentIdx + 1) % videoPaths.length;
+                else if (changeWallpaperMode === 1)
+                    currentIndex = (currentIdx - 1 + videoPaths.length) % videoPaths.length;
+                else if (changeWallpaperMode === 2)
+                    currentIndex = Math.floor(Math.random() * videoPaths.length);
+            }
 
             let getRandomIndex = (actualIndex, videosLength) => {
                 if (videosLength <= 1)
@@ -644,7 +666,6 @@ const HanabiRenderer = GObject.registerClass(
 
             let operation = () => {
                 console.debug(`setAutoWallpaper operation, interval: ${changeWallpaperInterval} min`);
-                // Avoid changing the wallpaper if it's paused to avoid unexpected playback resume.
                 if (this._isPlaying) {
                     extSettings.set_string('video-path', videoPaths[currentIndex]);
 
@@ -656,18 +677,16 @@ const HanabiRenderer = GObject.registerClass(
                         currentIndex = getRandomIndex(currentIndex, videoPaths.length);
                 }
 
-                // return true to be called again.
                 return true;
             };
 
-            // Remove the current timer
             if (changeWallpaperTimerId) {
                 GLib.source_remove(changeWallpaperTimerId);
                 changeWallpaperTimerId = null;
             }
-            // Reset the timer accordingly
             if (changeWallpaper) {
-                operation();
+                if (currentIdx === -1)
+                    operation();
                 changeWallpaperTimerId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, changeWallpaperInterval * 60, operation);
             }
         }
