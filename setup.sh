@@ -44,12 +44,24 @@ cd ~/dotfiles
 # Create necessary .config subdirectories so stow doesn't link the whole folder
 mkdir -p ~/.config/alacritty
 mkdir -p ~/.config/fastfetch
+mkdir -p ~/.local/share/gnome-shell
 
 stow zsh
 stow alacritty
 stow fastfetch
+stow gnome
 
-# --- 6. Set Default Shell to Zsh ---
+# --- 6. Restore GNOME Extension Settings ---
+echo "Restoring GNOME extension dconf settings..."
+if [ -f "$HOME/dotfiles/gnome/.config/dconf/gnome-extensions.conf" ]; then
+    dconf load /org/gnome/shell/extensions/ < "$HOME/dotfiles/gnome/.config/dconf/gnome-extensions.conf"
+fi
+if [ -f "$HOME/dotfiles/gnome/.config/dconf/enabled-extensions.txt" ]; then
+    enabled=$(cat "$HOME/dotfiles/gnome/.config/dconf/enabled-extensions.txt")
+    dconf write /org/gnome/shell/enabled-extensions "$enabled"
+fi
+
+# --- 7. Set Default Shell to Zsh ---
 if [ "$SHELL" != "$(which zsh)" ]; then
     echo "Changing default shell to zsh..."
     chsh -s $(which zsh)

@@ -1,0 +1,1 @@
+['ubuntu-dock@ubuntu.com', 'tilingshell@ferrarodomenico.com', 'blur-my-shell@aunetx', 'chronos-focus@anomalyco', 'unblank@sun.wxg@gmail.com', 'places-menu@gnome-shell-extensions.gcampax.github.com', 'hanabi-extension@jeffshee.github.io', 'monitor@astraext.github.io']

@@ -113,4 +113,4 @@ source $ZSH/oh-my-zsh.sh
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 export PATH="$HOME/.opencode/bin:$PATH"
-alias lc='~/Downloads/Lunar\ Client-3.6.11-ow.AppImage --no-sandbox'
+alias lc='~/programs/Lunar\ Client-3.6.12-ow.AppImage --no-sandbox'
