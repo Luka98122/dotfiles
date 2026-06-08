@@ -23,3 +23,10 @@ blue =    '#7aa2f7'
 magenta = '#ad8ee6'
 cyan =    '#449dab'
 white =   '#787c99'
+
+[mouse]
+hide_when_typing = false
+
+[window.dimensions]
+columns = 80
+lines = 26
