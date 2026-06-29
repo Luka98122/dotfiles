@@ -4,7 +4,9 @@
 echo "Installing core packages..."
 sudo add-apt-repository ppa:zhangsongcui3371/fastfetch
 sudo apt update
-sudo apt install -y zsh stow fastfetch alacritty dconf-cli wget unzip git curl eza
+sudo apt install -y zsh stow fastfetch alacritty dconf-cli wget unzip git curl eza \
+    gnome-shell-extensions \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
 
 # --- 2. Install Oh My Zsh (if not present) ---
 if [ ! -d "$HOME/.oh-my-zsh" ]; then
@@ -44,6 +46,7 @@ cd ~/dotfiles
 # Create necessary .config subdirectories so stow doesn't link the whole folder
 mkdir -p ~/.config/alacritty
 mkdir -p ~/.config/fastfetch
+mkdir -p ~/.config/dconf
 mkdir -p ~/.local/share/gnome-shell
 
 stow zsh
