@@ -4,7 +4,7 @@
 echo "Installing core packages..."
 sudo add-apt-repository ppa:zhangsongcui3371/fastfetch
 sudo apt update
-sudo apt install -y zsh stow fastfetch alacritty dconf-cli wget unzip git curl
+sudo apt install -y zsh stow fastfetch alacritty dconf-cli wget unzip git curl eza
 
 # --- 2. Install Oh My Zsh (if not present) ---
 if [ ! -d "$HOME/.oh-my-zsh" ]; then

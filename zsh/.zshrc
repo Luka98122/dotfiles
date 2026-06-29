@@ -115,3 +115,17 @@ source $ZSH/oh-my-zsh.sh
 export PATH="$HOME/.opencode/bin:$PATH"
 alias lc='"$(ls ~/programs/Lunar\ Client-*-ow.AppImage | head -n 1)" --no-sandbox'
 export XCURSOR_THEME=Adwaita
+
+if command -v eza >/dev/null 2>&1; then
+  # Quick view: Clean, fast, with icons
+  alias ls='eza --icons --group-directories-first'
+
+  # Detailed long view (ll): Incorporates your color-scale, git, and headers
+  alias ll='eza -l --icons --git --group-directories-first --header --color-scale=all'
+
+  # All files (la): Same as above, plus hidden files
+  alias la='eza -lA --icons --git --group-directories-first --header --color-scale=all'
+
+  # Tree view (lt): Level 5 depth, includes hidden files, but ignores the heavy folders
+  alias lt='eza -lA --icons --git --group-directories-first --header --color-scale=all --tree --level=5 --ignore-glob=".git|.venv|.cache|__pycache__|node_modules"'
+fi
