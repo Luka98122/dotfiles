@@ -11,6 +11,9 @@ dconf dump /org/gnome/shell/extensions/ > "$DCONF_DIR/gnome-extensions.conf"
 echo "Dumping enabled-extensions list -> enabled-extensions.txt"
 dconf read /org/gnome/shell/enabled-extensions > "$DCONF_DIR/enabled-extensions.txt"
 
+echo "Dumping Hanabi settings -> hanabi.conf (stores under its own dconf path)"
+dconf dump /io/github/jeffshee/hanabi-extension/ > "$DCONF_DIR/hanabi.conf"
+
 # Warn about enabled extensions that aren't vendored or system-provided.
 EXT_DIR="$(cd "$(dirname "$0")" && pwd)/.local/share/gnome-shell/extensions"
 echo

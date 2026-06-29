@@ -5,7 +5,7 @@ echo "Installing core packages..."
 sudo add-apt-repository ppa:zhangsongcui3371/fastfetch
 sudo apt update
 sudo apt install -y zsh stow fastfetch alacritty dconf-cli wget unzip git curl eza \
-    gnome-shell-extensions libglib2.0-bin \
+    gnome-shell-extensions libglib2.0-bin ffmpeg \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
 
 # --- 2. Install Oh My Zsh (if not present) ---
@@ -55,6 +55,10 @@ mkdir -p ~/.local/share/gnome-shell/extensions
 # Hanabi ships its GSettings schema here (outside the extension dir); pre-create
 # so stow links the .xml per-file instead of folding the whole dir.
 mkdir -p ~/.local/share/glib-2.0/schemas
+# Pre-create dirs for the Hanabi static-wallpaper sync (script + user service)
+# so stow links per-file instead of folding the whole dir.
+mkdir -p ~/.local/bin
+mkdir -p ~/.config/systemd/user
 
 stow zsh
 stow alacritty
@@ -73,6 +77,19 @@ if [ -f "$HOME/dotfiles/gnome/.config/dconf/enabled-extensions.txt" ]; then
     enabled=$(cat "$HOME/dotfiles/gnome/.config/dconf/enabled-extensions.txt")
     dconf write /org/gnome/shell/enabled-extensions "$enabled"
 fi
+# Hanabi stores its settings under its OWN dconf path (not /org/gnome/shell/extensions/),
+# so restore it separately. This includes video-path, which the wallpaper-sync needs.
+if [ -f "$HOME/dotfiles/gnome/.config/dconf/hanabi.conf" ]; then
+    dconf load /io/github/jeffshee/hanabi-extension/ < "$HOME/dotfiles/gnome/.config/dconf/hanabi.conf"
+fi
+
+# --- 6b. Enable Hanabi static-wallpaper sync service ---
+# Extracts the first frame of the Hanabi live wallpaper and sets it as the
+# static GNOME background (and re-syncs whenever the Hanabi video changes).
+echo "Enabling Hanabi static-wallpaper sync service..."
+systemctl --user daemon-reload 2>/dev/null || true
+systemctl --user enable --now hanabi-sync-static-wallpaper.service 2>/dev/null \
+    || echo "  (could not enable now -- it will start on next login)"
 
 # --- 7. Set Default Shell to Zsh ---
 if [ "$SHELL" != "$(which zsh)" ]; then

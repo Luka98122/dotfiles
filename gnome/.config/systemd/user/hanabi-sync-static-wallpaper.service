@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync static wallpaper from Hanabi live wallpaper
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hanabi-sync-static-wallpaper
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
