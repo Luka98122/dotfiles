@@ -5,7 +5,7 @@ echo "Installing core packages..."
 sudo add-apt-repository ppa:zhangsongcui3371/fastfetch
 sudo apt update
 sudo apt install -y zsh stow fastfetch alacritty dconf-cli wget unzip git curl eza \
-    gnome-shell-extensions \
+    gnome-shell-extensions libglib2.0-bin \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
 
 # --- 2. Install Oh My Zsh (if not present) ---
@@ -47,12 +47,22 @@ cd ~/dotfiles
 mkdir -p ~/.config/alacritty
 mkdir -p ~/.config/fastfetch
 mkdir -p ~/.config/dconf
-mkdir -p ~/.local/share/gnome-shell
+# GNOME only loads extensions from a REAL extensions/ dir. If we don't pre-create
+# it, stow folds the whole dir into a single symlink and GNOME ignores it.
+# Remove any such folded symlink from a previous run so stow links per-extension.
+[ -L "$HOME/.local/share/gnome-shell/extensions" ] && rm "$HOME/.local/share/gnome-shell/extensions"
+mkdir -p ~/.local/share/gnome-shell/extensions
+# Hanabi ships its GSettings schema here (outside the extension dir); pre-create
+# so stow links the .xml per-file instead of folding the whole dir.
+mkdir -p ~/.local/share/glib-2.0/schemas
 
 stow zsh
 stow alacritty
 stow fastfetch
 stow gnome
+
+# Compile GSettings schemas (e.g. Hanabi) so extension settings resolve.
+glib-compile-schemas ~/.local/share/glib-2.0/schemas/ 2>/dev/null || true
 
 # --- 6. Restore GNOME Extension Settings ---
 echo "Restoring GNOME extension dconf settings..."
