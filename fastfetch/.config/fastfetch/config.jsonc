@@ -21,5 +21,9 @@
     "localip",
     "break",
     "colors"
-  ]
+  ],
+  "display": {
+    "disableLinewrap": true
+  }
+
 }
