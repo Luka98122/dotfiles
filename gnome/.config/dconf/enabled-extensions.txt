@@ -1,1 +1,1 @@
-['ubuntu-dock@ubuntu.com', 'tilingshell@ferrarodomenico.com', 'blur-my-shell@aunetx', 'unblank@sun.wxg@gmail.com', 'places-menu@gnome-shell-extensions.gcampax.github.com', 'monitor@astraext.github.io', 'hanabi-extension@jeffshee.github.io', 'dash-to-dock@micxgx.gmail.com']
+['ubuntu-dock@ubuntu.com', 'tilingshell@ferrarodomenico.com', 'unblank@sun.wxg@gmail.com', 'places-menu@gnome-shell-extensions.gcampax.github.com', 'monitor@astraext.github.io', 'hanabi-extension@jeffshee.github.io', 'dash-to-dock@micxgx.gmail.com', 'blur-my-shell@aunetx']
