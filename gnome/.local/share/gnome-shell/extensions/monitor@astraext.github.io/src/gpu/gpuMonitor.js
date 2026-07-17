@@ -36,7 +36,9 @@ export default class GpuMonitor extends Monitor {
     constructor() {
         super('Gpu Monitor');
         this.status = false;
-        this.infoPipesCacheTime = 0;
+        this.gpuTaskStarting = false;
+        this.nvidiaParsing = false;
+        this.infoPipesCaches = new Map();
         this.monitoredGPUs = undefined;
         this.updateDisplaysTask = new CancellableTaskManager();
         this.updateAmdGpuTask = new ContinuousTaskManager();
@@ -57,6 +59,14 @@ export default class GpuMonitor extends Monitor {
         };
         Config.connect(this, 'changed::gpu-data', updateMonitoredGPUs.bind(this));
         updateMonitoredGPUs();
+        Utils.getGPUsListAsync()
+            .then(() => {
+            updateMainGpu();
+            updateMonitoredGPUs();
+        })
+            .catch((e) => {
+            Utils.error('Error loading GPUs list', e);
+        });
         this.updateMonitorStatus();
     }
     get updateFrequency() {
@@ -83,15 +93,16 @@ export default class GpuMonitor extends Monitor {
     }
     reset() {
         this.updateDisplaysTask?.cancel();
-        this.infoPipesCache = undefined;
-        this.infoPipesCacheTime = 0;
+        this.infoPipesCaches.clear();
     }
     start() {
-        this.startGpuTask();
         if (this.status)
             return;
         this.status = true;
         super.start();
+        this.startGpuTask().catch((e) => {
+            Utils.error('Error starting GPU task', e);
+        });
     }
     stop() {
         if (!this.status)
@@ -99,6 +110,7 @@ export default class GpuMonitor extends Monitor {
         this.status = false;
         super.stop();
         this.stopGpuTask();
+        this.gpuTaskStarting = false;
         this.reset();
     }
     startListeningFor(key) {
@@ -113,7 +125,18 @@ export default class GpuMonitor extends Monitor {
             this.updateMonitorStatus();
         }
     }
-    startGpuTask() {
+    async startGpuTask() {
+        if (this.gpuTaskStarting)
+            return;
+        this.gpuTaskStarting = true;
+        try {
+            await Utils.getGPUsListAsync();
+        }
+        finally {
+            this.gpuTaskStarting = false;
+        }
+        if (!this.status)
+            return;
         const monitoredGPUs = Utils.getMonitoredGPUs();
         if (!monitoredGPUs)
             return;
@@ -124,9 +147,9 @@ export default class GpuMonitor extends Monitor {
                 break;
             }
         }
-        if (hasAMD && Utils.hasAmdGpuTop() && !this.updateAmdGpuTask.isRunning) {
+        if (hasAMD && (await Utils.hasAmdGpuTopAsync()) && !this.updateAmdGpuTask.isRunning) {
             const timer = Math.round(Math.max(500, this.updateFrequency * 1000));
-            const path = Utils.commandPathLookup('amdgpu_top --version');
+            const path = await Utils.getAmdGpuTopPathAsync();
             if (path === false) {
                 Utils.error('Failed to find amdgpu_top');
                 return;
@@ -142,9 +165,13 @@ export default class GpuMonitor extends Monitor {
                 break;
             }
         }
-        if (hasNvidia && Utils.hasNvidiaSmi() && !this.updateNvidiaGpuTask.isRunning) {
+        if (hasNvidia && (await Utils.hasNvidiaSmiAsync()) && !this.updateNvidiaGpuTask.isRunning) {
             const timer = Math.round(Math.max(500, this.updateFrequency * 1000));
-            const path = Utils.commandPathLookup('nvidia-smi --version');
+            const path = await Utils.getNvidiaSmiPathAsync();
+            if (path === false) {
+                Utils.error('Failed to find nvidia-smi');
+                return;
+            }
             this.updateNvidiaGpuTask.start(`${path}nvidia-smi -q -x -lms ${timer}`, {
                 flush: { trigger: '</nvidia_smi_log>' },
             });
@@ -237,6 +264,13 @@ export default class GpuMonitor extends Monitor {
         }
         return { text: nvidia['#text'] };
     }
+    pushGpuUpdate(gpus) {
+        const history = new Map();
+        for (const [id, gpu] of gpus)
+            history.set(id, { ...gpu, raw: undefined });
+        this.pushUsageHistory('gpu', history);
+        this.notify('gpuUpdate', gpus);
+    }
     updateAmdGpu(data) {
         if (data.exit || !data.result)
             return;
@@ -257,9 +291,10 @@ export default class GpuMonitor extends Monitor {
                     sensors: { categories: [], list: [] },
                     raw: gpuInfo,
                 };
-                if (this.infoPipesCache &&
-                    GLib.get_monotonic_time() - this.infoPipesCacheTime < 600000) {
-                    gpu.info.pipes = this.infoPipesCache;
+                const infoPipesCache = this.infoPipesCaches.get(id);
+                if (infoPipesCache &&
+                    GLib.get_monotonic_time() - infoPipesCache.time < 600000000) {
+                    gpu.info.pipes = infoPipesCache.pipes;
                 }
                 else {
                     if (gpuInfo.Info) {
@@ -396,8 +431,10 @@ export default class GpuMonitor extends Monitor {
                             }
                             gpu.info.pipes.push({ name: 'Video Caps', data: caps.join('\n') });
                         }
-                        this.infoPipesCache = gpu.info.pipes;
-                        this.infoPipesCacheTime = GLib.get_monotonic_time();
+                        this.infoPipesCaches.set(id, {
+                            pipes: gpu.info.pipes,
+                            time: GLib.get_monotonic_time(),
+                        });
                     }
                 }
                 if (gpuInfo.VRAM) {
@@ -759,18 +796,28 @@ export default class GpuMonitor extends Monitor {
                 });
                 gpus.set(id, gpu);
             }
-            this.pushUsageHistory('gpu', gpus);
-            this.notify('gpuUpdate', gpus);
+            this.pushGpuUpdate(gpus);
         }
         catch (e) {
             Utils.error('Error updating AMD GPU', e);
         }
     }
-    updateNvidiaGpu(data) {
+    async updateNvidiaGpu(data) {
         if (data.exit || !data.result)
             return;
+        if (this.nvidiaParsing)
+            return;
+        this.nvidiaParsing = true;
         try {
-            const xml = Utils.xmlParse(data.result, ['supported_clocks']);
+            const xml = await Utils.xmlParseAsync(data.result, [
+                'supported_clocks',
+                'applications_clocks',
+                'default_applications_clocks',
+                'retired_pages',
+                'remapped_rows',
+                'ecc_errors',
+                'voltage',
+            ]);
             if (!xml.nvidia_smi_log)
                 return;
             let gpuInfoList = xml.nvidia_smi_log.gpu;
@@ -795,9 +842,10 @@ export default class GpuMonitor extends Monitor {
                     sensors: { categories: [], list: [] },
                     raw: gpuInfo,
                 };
-                if (this.infoPipesCache &&
-                    GLib.get_monotonic_time() - this.infoPipesCacheTime < 600000) {
-                    gpu.info.pipes = this.infoPipesCache;
+                const infoPipesCache = this.infoPipesCaches.get(id);
+                if (infoPipesCache &&
+                    GLib.get_monotonic_time() - infoPipesCache.time < 600000000) {
+                    gpu.info.pipes = infoPipesCache.pipes;
                 }
                 else {
                     const productName = GpuMonitor.nvidiaToGenericField(gpuInfo.product_name, true);
@@ -956,6 +1004,10 @@ export default class GpuMonitor extends Monitor {
                                 data: computeMode.text,
                             });
                     }
+                    this.infoPipesCaches.set(id, {
+                        pipes: gpu.info.pipes,
+                        time: GLib.get_monotonic_time(),
+                    });
                 }
                 if (gpuInfo.fb_memory_usage) {
                     const toalData = GpuMonitor.nvidiaToGenericField(gpuInfo.fb_memory_usage.total);
@@ -1408,11 +1460,13 @@ export default class GpuMonitor extends Monitor {
                 });
                 gpus.set(id, gpu);
             }
-            this.pushUsageHistory('gpu', gpus);
-            this.notify('gpuUpdate', gpus);
+            this.pushGpuUpdate(gpus);
         }
         catch (e) {
             Utils.error('Error updating Nvidia GPU', e);
+        }
+        finally {
+            this.nvidiaParsing = false;
         }
     }
     async updateDisplays() {

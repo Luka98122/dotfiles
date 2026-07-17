@@ -42,6 +42,7 @@ export default GObject.registerClass(class GraphBase extends St.BoxLayout {
             yAlign: params.yAlign,
             yExpand: true,
         });
+        this.cleanedUp = false;
         this.mini = params.mini;
         this.historyLimit = params.width;
         const styleClass = this.mini ? 'astra-monitor-graph-mini' : 'astra-monitor-graph';
@@ -67,6 +68,7 @@ export default GObject.registerClass(class GraphBase extends St.BoxLayout {
         this.setStyle();
         Signal.connect(this.historyChart, 'repaint', this.repaint.bind(this));
         Config.connect(this, 'changed::theme-style', this.setStyle.bind(this));
+        this.connect('destroy', this.cleanup.bind(this));
     }
     buildHistoryGrid() {
         Utils.error('buildHistoryGrid MUST BE OVERWRITTEN');
@@ -136,9 +138,15 @@ export default GObject.registerClass(class GraphBase extends St.BoxLayout {
         this.history = usageHistory;
         this.historyChart.queue_repaint();
     }
-    destroy() {
+    cleanup() {
+        if (this.cleanedUp)
+            return;
+        this.cleanedUp = true;
         Config.clear(this);
         Signal.clear(this.historyChart);
+    }
+    destroy() {
+        this.cleanup();
         this.historyChart?.destroy();
         this.historyChart = undefined;
         this.grid?.destroy();

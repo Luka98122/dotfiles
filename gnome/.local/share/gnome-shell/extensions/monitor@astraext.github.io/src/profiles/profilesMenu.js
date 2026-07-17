@@ -11,6 +11,7 @@ export default class ProfilesMenu extends PopupMenu.PopupMenu {
         const openingSide = shellBarPosition === 'top' ? St.Side.TOP : St.Side.BOTTOM;
         super(sourceActor, arrowAlignment, openingSide);
         this.freed = false;
+        this.profileSourceActor = sourceActor;
         this.actor.yExpand = true;
         Main.uiGroup.add_child(this.actor);
         this.createHeader();
@@ -26,6 +27,10 @@ export default class ProfilesMenu extends PopupMenu.PopupMenu {
                 }
             }
             return Clutter.EVENT_PROPAGATE;
+        });
+        this.sourceActorDestroyId = sourceActor.connect('destroy', () => {
+            this.sourceActorDestroyId = undefined;
+            this.close(false);
         });
     }
     createHeader() {
@@ -68,16 +73,27 @@ export default class ProfilesMenu extends PopupMenu.PopupMenu {
         }
     }
     close(animate) {
-        super.close(animate);
+        if (!this.freed)
+            super.close(animate);
+        this.destroy();
+    }
+    destroy() {
         if (this.capturedEventId) {
             global.stage.disconnect(this.capturedEventId);
             this.capturedEventId = undefined;
         }
+        if (this.sourceActorDestroyId !== undefined && this.profileSourceActor) {
+            this.profileSourceActor.disconnect(this.sourceActorDestroyId);
+            this.sourceActorDestroyId = undefined;
+        }
+        this.profileSourceActor = undefined;
         if (this.freed)
             return;
         this.freed = true;
         this.removeAll();
-        Main.uiGroup.remove_child(this.actor);
-        this.destroy();
+        const parent = this.actor.get_parent();
+        if (parent)
+            parent.remove_child(this.actor);
+        super.destroy();
     }
 }

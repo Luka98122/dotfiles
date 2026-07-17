@@ -107,49 +107,55 @@ export default class Network {
                 "'veth\\w{3,16}'",
             tabs: 1,
         }, 'network-ignored-regex', ignoredSection, '');
-        const devices = Utils.getNetworkInterfacesSync();
-        let ignoredDevices = Config.get_json('network-ignored');
-        if (!Array.isArray(ignoredDevices))
-            ignoredDevices = [];
-        for (const [name] of devices.entries()) {
-            const status = !ignoredDevices.includes(name);
-            const subtitle = status ? _('Active') : _('Ignored');
-            const row = new Adw.ActionRow({ title: name, subtitle });
-            ignoredSection.add_row(row);
-            const iconName = status ? 'am-dialog-ok-symbolic' : 'am-dialog-error-symbolic';
-            const icon = new Gtk.Image({ iconName: iconName });
-            icon.set_margin_start(15);
-            icon.set_margin_end(10);
-            row.add_prefix(icon);
-            const toggle = new Gtk.Switch({
-                active: !status,
-                halign: Gtk.Align.END,
-                valign: Gtk.Align.CENTER,
-            });
-            toggle.connect('state-set', (_switchObj, state) => {
-                let ignored = Config.get_json('network-ignored');
-                if (!Array.isArray(ignored))
-                    ignored = [];
-                if (state) {
-                    row.subtitle = _('Ignored');
-                    icon.iconName = 'am-dialog-error-symbolic';
-                    if (!ignored.includes(name)) {
-                        ignored.push(name);
+        const populateIgnoredInterfaces = (devices) => {
+            let ignoredDevices = Config.get_json('network-ignored');
+            if (!Array.isArray(ignoredDevices))
+                ignoredDevices = [];
+            for (const [name] of devices.entries()) {
+                const status = !ignoredDevices.includes(name);
+                const subtitle = status ? _('Active') : _('Ignored');
+                const row = new Adw.ActionRow({ title: name, subtitle });
+                ignoredSection.add_row(row);
+                const iconName = status ? 'am-dialog-ok-symbolic' : 'am-dialog-error-symbolic';
+                const icon = new Gtk.Image({ iconName: iconName });
+                icon.set_margin_start(15);
+                icon.set_margin_end(10);
+                row.add_prefix(icon);
+                const toggle = new Gtk.Switch({
+                    active: !status,
+                    halign: Gtk.Align.END,
+                    valign: Gtk.Align.CENTER,
+                });
+                toggle.connect('state-set', (_switchObj, state) => {
+                    let ignored = Config.get_json('network-ignored');
+                    if (!Array.isArray(ignored))
+                        ignored = [];
+                    if (state) {
+                        row.subtitle = _('Ignored');
+                        icon.iconName = 'am-dialog-error-symbolic';
+                        if (!ignored.includes(name)) {
+                            ignored.push(name);
+                        }
+                        Config.set('network-ignored', ignored, 'json');
                     }
-                    Config.set('network-ignored', ignored, 'json');
-                }
-                else {
-                    row.subtitle = _('Active');
-                    icon.iconName = 'am-dialog-ok-symbolic';
-                    if (ignored.includes(name)) {
-                        ignored = ignored.filter((deviceName) => deviceName !== name);
+                    else {
+                        row.subtitle = _('Active');
+                        icon.iconName = 'am-dialog-ok-symbolic';
+                        if (ignored.includes(name)) {
+                            ignored = ignored.filter((deviceName) => deviceName !== name);
+                        }
+                        Config.set('network-ignored', ignored, 'json');
                     }
-                    Config.set('network-ignored', ignored, 'json');
-                }
-            });
-            row.add_suffix(toggle);
-            row.activatableWidget = toggle;
-        }
+                });
+                row.add_suffix(toggle);
+                row.activatableWidget = toggle;
+            }
+        };
+        Utils.getNetworkInterfacesAsync()
+            .then(populateIgnoredInterfaces)
+            .catch((e) => {
+            Utils.error('Error loading network interfaces preferences', e);
+        });
         const sourcesSection = PrefsUtils.addExpanderRow({ title: _('Data Sources') }, group, 'network');
         const networkIOSources = [
             { value: 'auto', text: _('Auto') },
@@ -256,12 +262,14 @@ export default class Network {
         PrefsUtils.addStatusLabel({
             title: _("'NetHogs' not installed or not configured appopriately: you won't be able to monitor process network activity! Check the documentation for more information."),
         }, 'am-dialog-warning-symbolic', group);
-        if (!Utils.hasNethogs()) {
-            group.visible = true;
-        }
-        else {
-            group.visible = false;
-        }
+        group.visible = true;
+        Utils.hasNethogsAsync()
+            .then(hasNethogs => {
+            group.visible = !hasNethogs;
+        })
+            .catch((e) => {
+            Utils.error('Error checking NetHogs dependency', e);
+        });
         menuPage.add(group);
         group = new Adw.PreferencesGroup({ title: _('Menu') });
         const ioArrows = PrefsUtils.addExpanderRow({ title: _('IO Arrows') }, group, 'network');

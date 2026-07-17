@@ -30,6 +30,8 @@ export default class NetworkMonitor extends Monitor {
     }
     constructor() {
         super('Network Monitor');
+        this.nethogsStarting = false;
+        this.nethogsRunHasCaps = false;
         this.publicIpsUpdaterID = null;
         this.lastIpsUpdate = 0;
         this.detectedMaxSpeedsValues = {
@@ -40,6 +42,7 @@ export default class NetworkMonitor extends Monitor {
         this.updateNetworkIOTask = new CancellableTaskManager();
         this.updateRoutesTask = new CancellableTaskManager();
         this.updateWirelessTask = new CancellableTaskManager();
+        this.updatePublicIpsTask = new CancellableTaskManager();
         this.updateNethogsTask = new ContinuousTaskManager();
         this.updateNethogsTask.listen(this, this.updateNethogs.bind(this));
         this.reset();
@@ -104,6 +107,7 @@ export default class NetworkMonitor extends Monitor {
         this.updateNetworkIOTask?.cancel();
         this.updateRoutesTask?.cancel();
         this.updateWirelessTask?.cancel();
+        this.updatePublicIpsTask?.cancel();
     }
     start() {
         super.start();
@@ -151,11 +155,18 @@ export default class NetworkMonitor extends Monitor {
     startListeningFor(key) {
         super.startListeningFor(key);
         if (key === 'topProcesses') {
-            if (Utils.nethogsHasCaps()) {
-                if (this.dataSources.networkIO === 'nethogs' ||
-                    this.dataSources.networkIO === 'auto') {
-                    this.startNethogs();
-                }
+            if (this.usesNethogsTopProcesses()) {
+                Utils.nethogsHasCapsAsync()
+                    .then(hasCaps => {
+                    if (hasCaps &&
+                        this.isListeningFor('topProcesses') &&
+                        this.usesNethogsTopProcesses()) {
+                        this.startNethogs();
+                    }
+                })
+                    .catch((e) => {
+                    Utils.error('Error checking NetHogs capabilities', e);
+                });
             }
         }
     }
@@ -172,13 +183,8 @@ export default class NetworkMonitor extends Monitor {
             this.previousDetailedNetworkIO.devices = null;
             this.previousDetailedNetworkIO.time = -1;
         }
-        if (key === 'topProcesses') {
-            if (Utils.nethogsHasCaps()) {
-                if (this.dataSources.networkIO === 'nethogs' ||
-                    this.dataSources.networkIO === 'auto') {
-                    this.stopNethogs();
-                }
-            }
+        if (key === 'topProcesses' && this.nethogsRunHasCaps) {
+            this.stopNethogs();
         }
     }
     update() {
@@ -460,6 +466,8 @@ export default class NetworkMonitor extends Monitor {
         return true;
     }
     startPublicIpsUpdater() {
+        if (this.publicIpsUpdaterID !== null)
+            return;
         this.publicIpsUpdaterID = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60 * 5, this.updatePublicIps.bind(this));
     }
     stopPublicIpsUpdater() {
@@ -472,17 +480,19 @@ export default class NetworkMonitor extends Monitor {
         return (GLib.get_monotonic_time() - this.lastIpsUpdate) / 1000000;
     }
     updatePublicIps(force = false) {
-        (async () => {
-            try {
-                this.lastIpsUpdate = GLib.get_monotonic_time();
-                const ipv4 = await this.updatePublicIpv4Address();
-                const ipv6 = await this.updatePublicIpv6Address();
-                if (ipv4 || ipv6 || force)
-                    this.notify('publicIps');
-            }
-            catch (e) {
-            }
-        })();
+        const task = this.updatePublicIpsTask;
+        task.run(async () => {
+            this.lastIpsUpdate = GLib.get_monotonic_time();
+            const cancellable = task.cancellable;
+            const ipv4 = await this.updatePublicIpv4Address(cancellable);
+            const ipv6 = await this.updatePublicIpv6Address(cancellable);
+            if (cancellable.is_cancelled())
+                return false;
+            if (ipv4 || ipv6 || force)
+                this.notify('publicIps');
+            return true;
+        }).catch(() => {
+        });
         return true;
     }
     resetIPv4() {
@@ -491,11 +501,15 @@ export default class NetworkMonitor extends Monitor {
         this.setUsageValue('publicIpv4Address', '');
         return true;
     }
-    async updatePublicIpv4Address() {
+    async updatePublicIpv4Address(cancellable) {
+        if (cancellable.is_cancelled())
+            return false;
         const publicIpv4Address = Config.get_string('network-source-public-ipv4');
         if (!publicIpv4Address)
             return this.resetIPv4();
-        const value = await Utils.getUrlAsync(publicIpv4Address, true);
+        const value = await Utils.getUrlAsync(publicIpv4Address, true, cancellable);
+        if (cancellable.is_cancelled())
+            return false;
         if (!value)
             return this.resetIPv4();
         const regex = /(\b25[0-5]|\b2[0-4][0-9]|\b[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}/;
@@ -515,11 +529,15 @@ export default class NetworkMonitor extends Monitor {
         this.setUsageValue('publicIpv6Address', '');
         return true;
     }
-    async updatePublicIpv6Address() {
+    async updatePublicIpv6Address(cancellable) {
+        if (cancellable.is_cancelled())
+            return false;
         const publicIpv6Address = Config.get_string('network-source-public-ipv6');
         if (!publicIpv6Address)
             return this.resetIPv6();
-        const value = await Utils.getUrlAsync(publicIpv6Address, true);
+        const value = await Utils.getUrlAsync(publicIpv6Address, true, cancellable);
+        if (cancellable.is_cancelled())
+            return false;
         if (!value)
             return this.resetIPv6();
         const regex = /(?:[\da-f]{0,4}:){2,7}(?:(?<ipv4>(?:(?:25[0-5]|2[0-4]\d|1?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|1?\d\d?))|[\da-f]{0,4}|:)/i;
@@ -534,21 +552,23 @@ export default class NetworkMonitor extends Monitor {
         return true;
     }
     async updateRoutes() {
-        const routes = await Utils.getNetworkRoutesAsync();
+        const routes = await Utils.getNetworkRoutesAsync(this.updateRoutesTask);
         if (!routes)
             return false;
         this.setUsageValue('routes', routes);
         return true;
     }
     async updateWirelessAuto() {
-        if (Utils.hasIwconfig())
+        if (await Utils.hasIwconfigAsync())
             return this.updateWirelessIwconfig();
-        if (Utils.hasIw())
+        if (await Utils.hasIwAsync())
             return this.updateWirelessIw();
         return false;
     }
     async updateWirelessIwconfig() {
-        const path = Utils.commandPathLookup('iwconfig --version');
+        const path = await Utils.getIwconfigPathAsync();
+        if (path === false)
+            return false;
         let result = '';
         try {
             result = await Utils.runAsyncCommand(`${path}iwconfig`);
@@ -614,7 +634,9 @@ export default class NetworkMonitor extends Monitor {
                 continue;
             devicePromises.push((async () => {
                 try {
-                    const path = Utils.commandPathLookup('iw --version');
+                    const path = await Utils.getIwPathAsync();
+                    if (path === false)
+                        return;
                     const str = await Utils.runAsyncCommand(`${path}iw dev ${dev} link`);
                     if (!str)
                         return;
@@ -652,48 +674,72 @@ export default class NetworkMonitor extends Monitor {
         this.setUsageValue('wireless', devices);
         return true;
     }
+    usesNethogsTopProcesses() {
+        return (this.dataSources.topProcesses === 'nethogs' || this.dataSources.topProcesses === 'auto');
+    }
     topProcessesSourceChanged() {
-        if (this.dataSources.topProcesses === 'nethogs' ||
-            this.dataSources.topProcesses === 'auto') {
+        if (this.usesNethogsTopProcesses()) {
+            if (this.isListeningFor('topProcesses')) {
+                this.startNethogs();
+            }
         }
         else {
             this.stopNethogs();
         }
     }
-    startNethogs() {
-        if (this.updateNethogsTask.isRunning)
+    async startNethogs(force = false) {
+        if (this.updateNethogsTask.isRunning || this.nethogsStarting)
             return;
-        const interval = Math.max(1, Math.min(Math.round(this.updateFrequency), 15));
-        const path = Utils.commandPathLookup('nethogs -V');
-        if (Utils.nethogsHasCaps()) {
-            if (path !== false) {
-                const command = `nethogs -tb -d ${interval}`;
+        this.nethogsStarting = true;
+        try {
+            const interval = Math.max(1, Math.min(Math.round(this.updateFrequency), 15));
+            const path = await Utils.getNethogsPathAsync();
+            if (path === false) {
+                Utils.error('nethogs not found');
+                return;
+            }
+            const hasCaps = await Utils.nethogsHasCapsAsync();
+            if ((!force && !this.isListeningFor('topProcesses')) ||
+                !this.usesNethogsTopProcesses()) {
+                return;
+            }
+            if (!hasCaps && !force) {
+                return;
+            }
+            if (this.updateNethogsTask.isRunning)
+                return;
+            this.nethogsRunHasCaps = hasCaps;
+            if (hasCaps) {
+                const command = `${path}nethogs -tb -d ${interval}`;
+                this.updateNethogsTask.start(command, {
+                    flush: { idle: 100 },
+                });
+            }
+            else {
+                const pkexecPath = await Utils.getPkexecPathAsync();
+                if (pkexecPath === false) {
+                    Utils.error('pkexec not found');
+                    return;
+                }
+                const num = Math.max(1, Math.round(60 / interval));
+                const command = `${pkexecPath}pkexec ${path}nethogs -tb -d ${interval} -c ${num}`;
                 this.updateNethogsTask.start(command, {
                     flush: { idle: 100 },
                 });
             }
         }
-        else {
-            const pkexecPath = Utils.commandPathLookup('pkexec --version');
-            if (pkexecPath === false) {
-                Utils.error('pkexec not found');
-                return;
-            }
-            const num = Math.max(1, Math.round(60 / interval));
-            const command = `${pkexecPath}pkexec ${path}nethogs -tb -d ${interval} -c ${num}`;
-            this.updateNethogsTask.start(command, {
-                flush: { idle: 100 },
-            });
+        finally {
+            this.nethogsStarting = false;
         }
     }
     stopNethogs() {
-        if (!this.updateNethogsTask.isRunning)
-            return;
-        this.updateNethogsTask.stop();
+        this.nethogsStarting = false;
+        if (this.updateNethogsTask.isRunning)
+            this.updateNethogsTask.stop();
     }
     async updateNethogs(data) {
         if (data.exit) {
-            if (!Utils.nethogsHasCaps()) {
+            if (!this.nethogsRunHasCaps) {
                 this.notify('topProcessesStop');
             }
             return;
@@ -761,6 +807,8 @@ export default class NetworkMonitor extends Monitor {
         this.updateRoutesTask = undefined;
         this.updateWirelessTask?.cancel();
         this.updateWirelessTask = undefined;
+        this.updatePublicIpsTask?.cancel();
+        this.updatePublicIpsTask = undefined;
         this.updateNethogsTask?.destroy();
         this.updateNethogsTask = undefined;
         super.destroy();

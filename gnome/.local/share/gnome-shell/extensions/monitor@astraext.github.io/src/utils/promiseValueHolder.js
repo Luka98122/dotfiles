@@ -19,25 +19,26 @@
  */
 export default class PromiseValueHolder {
     constructor(promise) {
-        this.isResolved = false;
-        this.promise = promise;
-        this.promise
-            .then((value) => {
+        this.settled = false;
+        this.rejected = false;
+        this.promise = promise.then((value) => {
             this.resolvedValue = value;
-            this.isResolved = true;
-        })
-            .catch(error => {
-            this.isResolved = true;
+            this.settled = true;
+            return value;
+        }, error => {
+            this.rejectedReason = error;
+            this.rejected = true;
+            this.settled = true;
             throw error;
         });
     }
     getValue() {
-        if (this.isResolved) {
+        if (this.settled) {
+            if (this.rejected)
+                return Promise.reject(this.rejectedReason);
             return Promise.resolve(this.resolvedValue);
         }
-        else {
-            return this.promise;
-        }
+        return this.promise;
     }
 }
 export class PromiseValueHolderStore {

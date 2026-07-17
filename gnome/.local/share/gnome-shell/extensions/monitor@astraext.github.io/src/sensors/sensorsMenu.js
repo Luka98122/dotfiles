@@ -31,15 +31,18 @@ export default class SensorsMenu extends MenuBase {
         this.addUtilityButtons('sensors');
         Config.connect(this, 'changed::sensors-ignored-regex', () => {
             this.resetSensorsList();
-            Utils.sensorsMonitor.requestUpdate('sensorsData');
+            if (this.isOpen)
+                Utils.sensorsMonitor.requestUpdate('sensorsData');
         });
         Config.connect(this, 'changed::sensors-ignored-category-regex', () => {
             this.resetSensorsList();
-            Utils.sensorsMonitor.requestUpdate('sensorsData');
+            if (this.isOpen)
+                Utils.sensorsMonitor.requestUpdate('sensorsData');
         });
         Config.connect(this, 'changed::sensors-ignored-attribute-regex', () => {
             this.resetSensorsList();
-            Utils.sensorsMonitor.requestUpdate('sensorsData');
+            if (this.isOpen)
+                Utils.sensorsMonitor.requestUpdate('sensorsData');
         });
     }
     createSensorsList() {
@@ -53,14 +56,24 @@ export default class SensorsMenu extends MenuBase {
                 xExpand: true,
             });
             this.sensorsSection.addToGrid(this.noSensorsLabel, 2);
+            this.sensorsLoadingIcon = new St.Icon({
+                gicon: Utils.getLocalIcon('am-loading-symbolic'),
+                fallbackIconName: 'dialog-information-symbolic',
+                style: 'icon-size:1.3em;min-height:1.3em;',
+                xExpand: true,
+                xAlign: Clutter.ActorAlign.CENTER,
+                yAlign: Clutter.ActorAlign.CENTER,
+            });
+            this.sensorsLoadingIcon.set_pivot_point(0.5, 0.5);
+            this.sensorsLoadingIcon.hide();
+            this.sensorsSection.addToGrid(this.sensorsLoadingIcon, 2);
             this.sensors = new Map();
             this.addToMenu(this.sensorsSection, 2);
         }
     }
     resetSensorsList() {
         for (const [id, sensor] of this.sensors.entries()) {
-            this.sensorsSection.remove_child(sensor.container);
-            this.sensors.delete(id);
+            this.destroySensor(id, sensor);
         }
         this.noSensorsLabel.show();
     }
@@ -71,8 +84,7 @@ export default class SensorsMenu extends MenuBase {
             this.noSensorsLabel.show();
         for (const [id, sensor] of this.sensors.entries()) {
             if (!sensors.has(id)) {
-                this.sensorsSection.remove_child(sensor.container);
-                this.sensors.delete(id);
+                this.destroySensor(id, sensor);
             }
         }
         const idList = Array.from(sensors.keys());
@@ -206,6 +218,12 @@ export default class SensorsMenu extends MenuBase {
             categories,
         };
     }
+    destroySensor(id, sensor) {
+        sensor.popup.close(false);
+        sensor.popup.destroy();
+        sensor.container.destroy();
+        this.sensors.delete(id);
+    }
     updateSensor(sensor, sensorData) {
         sensor.data = sensorData;
         sensor.name.text = sensorData.name;
@@ -277,12 +295,20 @@ export default class SensorsMenu extends MenuBase {
     }
     async onOpen() {
         Utils.sensorsMonitor.listen(this, 'sensorsDataAll', () => { });
+        this.updateFreshOrShowLoading(Utils.sensorsMonitor, 'sensorsData', 'sensorsData', this.showSensorsLoading.bind(this));
         Utils.sensorsMonitor.listen(this, 'sensorsData', this.update.bind(this, 'sensorsData', false));
-        Utils.sensorsMonitor.requestUpdate('sensorsData');
+        this.scheduleOpenUpdate('sensorsData', Utils.sensorsMonitor, () => {
+            Utils.sensorsMonitor.requestUpdate('sensorsData');
+        });
     }
     onClose() {
+        super.onClose();
         Utils.sensorsMonitor.unlisten(this, 'sensorsDataAll');
         Utils.sensorsMonitor.unlisten(this, 'sensorsData');
+    }
+    showSensorsLoading() {
+        this.noSensorsLabel.hide();
+        this.startLoadingIcon(this.sensorsLoadingIcon);
     }
     update(code, forced = false) {
         if (!this.needsUpdate(code, forced))
@@ -290,6 +316,7 @@ export default class SensorsMenu extends MenuBase {
         if (code === 'sensorsData') {
             const sensorsData = Utils.sensorsMonitor.getCurrentValue('sensorsData');
             if (sensorsData) {
+                this.stopLoadingIcon(this.sensorsLoadingIcon);
                 const sensorsList = new Map();
                 if (sensorsData.lm_sensors &&
                     Utils.sensorsMonitor.sensorsSourceSetting === 'lm-sensors') {
@@ -307,5 +334,9 @@ export default class SensorsMenu extends MenuBase {
             }
             return;
         }
+    }
+    destroy() {
+        this.resetSensorsList();
+        super.destroy();
     }
 }

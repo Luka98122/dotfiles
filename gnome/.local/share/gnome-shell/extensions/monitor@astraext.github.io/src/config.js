@@ -134,8 +134,12 @@ class Config {
     }
     static unbind(widget, property) {
         Gio.Settings.unbind(widget, property);
-        if (Config.bindMap.has(widget))
-            delete Config.bindMap.get(widget)[property];
+        if (Config.bindMap.has(widget)) {
+            const widgetBindings = Config.bindMap.get(widget);
+            delete widgetBindings[property];
+            if (Object.keys(widgetBindings).length === 0)
+                Config.bindMap.delete(widget);
+        }
     }
     static connect(object, signal, callback) {
         if (!Config.settings)
@@ -156,33 +160,49 @@ class Config {
         return id;
     }
     static disconnect(object, signal = null) {
-        if (!Config.settings)
-            return;
         if (!Config.connectMap.has(object))
             return;
+        if (!Config.settings) {
+            Config.connectMap.delete(object);
+            return;
+        }
         const connections = Config.connectMap.get(object);
+        const remainingConnections = [];
         for (const connection of connections) {
-            if (signal && connection.signal !== signal)
+            if (signal && connection.signal !== signal) {
+                remainingConnections.push(connection);
                 continue;
+            }
             Config.settings.disconnect(connection.id);
-            const index = connections.indexOf(connection);
-            if (index !== -1)
-                connections.splice(index, 1);
+        }
+        if (remainingConnections.length === 0) {
+            Config.connectMap.delete(object);
+        }
+        else if (signal) {
+            Config.connectMap.set(object, remainingConnections);
         }
     }
     static disconnectAfter(object, signal = null) {
-        if (!Config.settings)
-            return;
         if (!Config.connectAfterMap.has(object))
             return;
+        if (!Config.settings) {
+            Config.connectAfterMap.delete(object);
+            return;
+        }
         const connections = Config.connectAfterMap.get(object);
+        const remainingConnections = [];
         for (const connection of connections) {
-            if (signal && connection.signal !== signal)
+            if (signal && connection.signal !== signal) {
+                remainingConnections.push(connection);
                 continue;
+            }
             Config.settings.disconnect(connection.id);
-            const index = connections.indexOf(connection);
-            if (index !== -1)
-                connections.splice(index, 1);
+        }
+        if (remainingConnections.length === 0) {
+            Config.connectAfterMap.delete(object);
+        }
+        else if (signal) {
+            Config.connectAfterMap.set(object, remainingConnections);
         }
     }
     static disconnectAll(object) {
@@ -190,37 +210,25 @@ class Config {
         this.disconnectAfter(object);
     }
     static clear(widget) {
-        if (!Config.settings)
-            return;
         if (Config.bindMap.has(widget)) {
             const widgetBindings = Config.bindMap.get(widget);
             for (const property in widgetBindings)
                 Gio.Settings.unbind(widget, property);
             Config.bindMap.delete(widget);
         }
-        if (Config.connectMap.has(widget)) {
-            const widgetConnections = Config.connectMap.get(widget);
-            for (const connection of widgetConnections)
-                Config.settings.disconnect(connection.id);
-            Config.connectMap.delete(widget);
-        }
-        if (Config.connectAfterMap.has(widget)) {
-            const widgetConnections = Config.connectAfterMap.get(widget);
-            for (const connection of widgetConnections)
-                Config.settings.disconnect(connection.id);
-            Config.connectAfterMap.delete(widget);
-        }
+        Config.disconnect(widget);
+        Config.disconnectAfter(widget);
         if (Config.syncMap.has(widget))
             Config.syncMap.delete(widget);
     }
     static clearAll() {
-        for (const widget of Config.bindMap.keys())
+        for (const widget of [...Config.bindMap.keys()])
             Config.clear(widget);
-        for (const object of Config.connectMap.keys())
+        for (const object of [...Config.connectMap.keys()])
             Config.clear(object);
-        for (const object of Config.connectAfterMap.keys())
+        for (const object of [...Config.connectAfterMap.keys()])
             Config.clear(object);
-        for (const object of Config.syncMap.keys())
+        for (const object of [...Config.syncMap.keys()])
             Config.clear(object);
     }
     static getCurrentSettingsData(skips = []) {

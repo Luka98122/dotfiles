@@ -127,6 +127,6 @@ if command -v eza >/dev/null 2>&1; then
   alias la='eza -lA --icons --git --group-directories-first --header --color-scale=all'
 
   # Tree view (lt): Level 5 depth, includes hidden files, but ignores the heavy folders
-  alias lt='eza -lA --icons --git --group-directories-first --header --color-scale=all --tree --level=5 --ignore-glob=".git|.venv|.cache|__pycache__|node_modules"'
+  alias lt='eza -lA --icons --git --group-directories-first --header --color-scale=all --tree --level=3 --ignore-glob=".git|.venv|.cache|__pycache__|node_modules"'
 fi
 export PATH="$HOME/.local/bin:$PATH"

@@ -37,8 +37,12 @@ export default class ProcessorMonitor extends Monitor {
         this.updateTopProcessesTask = new CancellableTaskManager();
         this.updateLoadAvgTask = new CancellableTaskManager();
         this.cpuPresent = null;
-        this.getCpuTopology();
-        this.getCpuInfoSync();
+        this.getCpuTopologyAsync().catch(e => {
+            Utils.error('Error loading CPU topology', e);
+        });
+        this.getCpuInfoAsync().catch(e => {
+            Utils.error('Error loading CPU info', e);
+        });
         this.reset();
         this.dataSourcesInit();
         const enabled = Config.get_boolean('processor-header-show');
@@ -62,16 +66,7 @@ export default class ProcessorMonitor extends Monitor {
             system: -1,
             total: -1,
         };
-        const numCores = this.getCpuTopology().length;
-        this.previousCpuCoresUsage = new Array(numCores);
-        for (let i = 0; i < numCores || 0; i++) {
-            this.previousCpuCoresUsage[i] = {
-                idle: -1,
-                user: -1,
-                system: -1,
-                total: -1,
-            };
-        }
+        this.resetCpuCoresUsage();
         this.topProcessesCache?.reset();
         this.topProcessesTime = -1;
         this.previousPidsCpuTime = new Map();
@@ -111,16 +106,7 @@ export default class ProcessorMonitor extends Monitor {
             this.dataSources.cpuCoresUsage =
                 Config.get_string('processor-source-cpu-cores-usage') ?? undefined;
             this.updateCoresUsageTask.cancel();
-            const numCores = this.getCpuTopology().length;
-            this.previousCpuCoresUsage = new Array(numCores);
-            for (let i = 0; i < numCores; i++) {
-                this.previousCpuCoresUsage[i] = {
-                    idle: -1,
-                    user: -1,
-                    system: -1,
-                    total: -1,
-                };
-            }
+            this.resetCpuCoresUsage();
             this.resetUsageHistory('cpuCoresUsage');
         });
         Config.connect(this, 'changed::processor-source-top-processes', () => {
@@ -285,34 +271,40 @@ export default class ProcessorMonitor extends Monitor {
             });
         }));
     }
-    getCpuPresentSync() {
-        const fileContents = GLib.file_get_contents('/sys/devices/system/cpu/present');
-        if (fileContents && fileContents[0]) {
-            const decoder = new TextDecoder('utf8');
-            return Utils.parseCpuPresentFile(decoder.decode(fileContents[1]));
+    resetCpuCoresUsage(topology = this.getCpuTopology()) {
+        const numCores = topology.length;
+        this.previousCpuCoresUsage = new Array(numCores);
+        for (let i = 0; i < numCores; i++) {
+            this.previousCpuCoresUsage[i] = {
+                idle: -1,
+                user: -1,
+                system: -1,
+                total: -1,
+            };
         }
-        return [];
     }
     getCpuTopology() {
-        if (this.cpuPresent !== null)
-            return this.cpuPresent;
-        this.cpuPresent = this.getCpuPresentSync();
-        return this.cpuPresent;
+        return this.cpuPresent ?? [];
     }
-    getCpuInfoSync() {
-        if (this.cpuInfo !== undefined)
-            return this.cpuInfo;
-        this.cpuInfo = {};
+    getCpuTopologyAsync() {
+        if (this.cpuPresent !== null)
+            return Promise.resolve(this.cpuPresent);
+        if (this.cpuPresentPromise)
+            return this.cpuPresentPromise;
+        this.cpuPresentPromise = Utils.readFileAsync('/sys/devices/system/cpu/present', true)
+            .then(fileContent => {
+            this.cpuPresent = fileContent ? Utils.parseCpuPresentFile(fileContent) : [];
+            this.resetCpuCoresUsage(this.cpuPresent);
+            return this.cpuPresent;
+        })
+            .finally(() => {
+            this.cpuPresentPromise = undefined;
+        });
+        return this.cpuPresentPromise;
+    }
+    parseCpuInfoFromLscpu(output) {
         try {
-            if (!Utils.hasLscpu())
-                return this.cpuInfo;
-            const path = Utils.commandPathLookup('lscpu --version');
-            const [result, stdout, _stderr] = GLib.spawn_command_line_sync(`${path}lscpu`);
-            if (!result || !stdout)
-                return this.cpuInfo;
-            const decoder = new TextDecoder('utf8');
-            const output = decoder.decode(stdout);
-            let lines = output.split('\n');
+            const lines = output.split('\n');
             const cpuInfo = {};
             let currentCategory = cpuInfo;
             let lastKey = null;
@@ -342,11 +334,34 @@ export default class ProcessorMonitor extends Monitor {
                     currentCategory[lastKey] += '\n' + line.trim();
                 }
             }
-            this.cpuInfo = cpuInfo;
+            return cpuInfo;
+        }
+        catch (e) {
+            return {};
+        }
+    }
+    getCpuInfoAsync() {
+        if (this.cpuInfo !== undefined && this.cpuInfo['Model name'])
+            return Promise.resolve(this.cpuInfo);
+        if (this.cpuInfoPromise)
+            return this.cpuInfoPromise;
+        this.cpuInfoPromise = (async () => {
+            if (this.cpuInfo === undefined)
+                this.cpuInfo = {};
+            try {
+                const path = await Utils.getLscpuPathAsync();
+                if (path !== false) {
+                    const output = await Utils.runAsyncCommand(`${path}lscpu`);
+                    this.cpuInfo = this.parseCpuInfoFromLscpu(output);
+                }
+            }
+            catch (e) {
+                this.cpuInfo = this.cpuInfo ?? {};
+            }
             if (!this.cpuInfo['Model name']) {
-                const fileContents = GLib.file_get_contents('/proc/cpuinfo');
-                if (fileContents && fileContents[0]) {
-                    lines = decoder.decode(fileContents[1]).split('\n');
+                const fileContent = await Utils.readFileAsync('/proc/cpuinfo', true);
+                if (fileContent && this.cpuInfo) {
+                    const lines = fileContent.split('\n');
                     for (const line of lines) {
                         if (line.startsWith('model name')) {
                             const [, value] = line.split(':').map(s => s.trim());
@@ -356,11 +371,11 @@ export default class ProcessorMonitor extends Monitor {
                     }
                 }
             }
-        }
-        catch (e) {
-            this.cpuInfo = {};
-        }
-        return this.cpuInfo;
+            return this.cpuInfo ?? {};
+        })().finally(() => {
+            this.cpuInfoPromise = undefined;
+        });
+        return this.cpuInfoPromise;
     }
     updateCpuUsageAuto(procStat) {
         if (Utils.GTop)
@@ -503,7 +518,7 @@ export default class ProcessorMonitor extends Monitor {
                 cpuLines.set(cpuId, parts);
             }
         }
-        const topology = this.getCpuTopology();
+        const topology = await this.getCpuTopologyAsync();
         const cpuCoresUsage = [];
         for (let i = 0; i < topology.length; i++) {
             const coreId = topology[i];
@@ -550,7 +565,7 @@ export default class ProcessorMonitor extends Monitor {
         const cpu = new GTop.glibtop_cpu();
         GTop.glibtop_get_cpu(cpu);
         const cpuCoresUsage = [];
-        const topology = this.getCpuTopology();
+        const topology = await this.getCpuTopologyAsync();
         for (let i = 0; i < topology.length; i++) {
             const coreId = topology[i];
             if (coreId < cpu.xcpu_total.length && cpu.xcpu_total[coreId] > 0) {
@@ -620,7 +635,7 @@ export default class ProcessorMonitor extends Monitor {
         };
     }
     async updateCpuCoresFrequencyProc() {
-        const topology = this.getCpuTopology();
+        const topology = await this.getCpuTopologyAsync();
         if (this.isListeningFor('cpuCoresFrequency')) {
             try {
                 const paths = topology.map(coreId => `/sys/devices/system/cpu/cpu${coreId}/cpufreq/scaling_cur_freq`);
@@ -731,6 +746,10 @@ export default class ProcessorMonitor extends Monitor {
         const topProcesses = processes.filter(proc => proc !== null);
         topProcesses.sort((a, b) => b.cpu - a.cpu);
         topProcesses.splice(ProcessorMonitor.TOP_PROCESSES_LIMIT);
+        for (const pid of this.previousPidsCpuTime.keys()) {
+            if (!seenPids.includes(pid))
+                this.previousPidsCpuTime.delete(pid);
+        }
         this.topProcessesCache.updateNotSeen(seenPids);
         this.setUsageValue('topProcesses', topProcesses);
         return true;

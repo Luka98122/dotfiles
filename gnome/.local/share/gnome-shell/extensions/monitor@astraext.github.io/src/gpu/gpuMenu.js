@@ -39,6 +39,7 @@ export default class GpuMenu extends MenuBase {
         this.gpuSection?.onOpen();
     }
     onClose() {
+        super.onClose();
         this.gpuSection?.onClose();
     }
     update(code, forced = false, ...args) {

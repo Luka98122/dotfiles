@@ -47,8 +47,6 @@ export default class ProcessorMenu extends MenuBase {
     addName() {
         if (!Utils.processorMonitor)
             throw new Error('Critical: Utils.processorMonitor is not valid');
-        const cpuInfo = Utils.processorMonitor.getCpuInfoSync();
-        const cpuName = cpuInfo['Model name'] || '';
         const defaultStyle = 'max-width: 150px;';
         const hoverButton = new St.Button({
             reactive: true,
@@ -57,10 +55,24 @@ export default class ProcessorMenu extends MenuBase {
             style: defaultStyle,
         });
         const hoverLabel = new St.Label({
-            text: Utils.getCPUModelShortify(cpuName),
+            text: _('Loading CPU info...'),
         });
         hoverButton.set_child(hoverLabel);
-        this.createCPUInfoPopup(hoverButton, cpuInfo, cpuName);
+        this.createCPUInfoPopup(hoverButton, {}, _('Loading CPU info...'));
+        Utils.processorMonitor
+            .getCpuInfoAsync()
+            .then(updatedCpuInfo => {
+            if (!this.cpuInfoPopup)
+                return;
+            const updatedCpuName = updatedCpuInfo['Model name'] || '';
+            hoverLabel.text = Utils.getCPUModelShortify(updatedCpuName);
+            this.cpuInfoPopup.close(false);
+            this.cpuInfoPopup.destroy();
+            this.createCPUInfoPopup(hoverButton, updatedCpuInfo, updatedCpuName);
+        })
+            .catch(e => {
+            Utils.error('Error updating CPU info menu', e);
+        });
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.cpuInfoPopup) {
@@ -184,7 +196,7 @@ export default class ProcessorMenu extends MenuBase {
             styleClass: 'astra-monitor-menu-value',
             xExpand: true,
         });
-        grid.addToGrid(this.cpuTotalPerc);
+        grid.addToGrid(MenuBase.createLoadingValue(this.cpuTotalPerc));
         label = new St.Label({ text: _('User:'), styleClass: 'astra-monitor-menu-label' });
         grid.addToGrid(label);
         this.cpuUserPerc = new St.Label({
@@ -192,7 +204,7 @@ export default class ProcessorMenu extends MenuBase {
             styleClass: 'astra-monitor-menu-value',
             xExpand: true,
         });
-        grid.addToGrid(this.cpuUserPerc);
+        grid.addToGrid(MenuBase.createLoadingValue(this.cpuUserPerc));
         label = new St.Label({ text: _('System:'), styleClass: 'astra-monitor-menu-label' });
         grid.addToGrid(label);
         this.cpuSystemPerc = new St.Label({
@@ -200,7 +212,7 @@ export default class ProcessorMenu extends MenuBase {
             styleClass: 'astra-monitor-menu-value',
             xExpand: true,
         });
-        grid.addToGrid(this.cpuSystemPerc);
+        grid.addToGrid(MenuBase.createLoadingValue(this.cpuSystemPerc));
         const hoverButton = new St.Button({
             reactive: true,
             trackHover: true,
@@ -287,6 +299,7 @@ export default class ProcessorMenu extends MenuBase {
             trackHover: true,
             style: defaultStyle,
         });
+        this.cpuCoresHoverButton = hoverButton;
         const grid = new Grid({ styleClass: 'astra-monitor-menu-subgrid' });
         hoverButton.set_child(grid);
         this.processorBar = new ProcessorBars({
@@ -307,6 +320,27 @@ export default class ProcessorMenu extends MenuBase {
         });
         grid.addGrid(this.graph, 0, 1, 2, 1);
         this.createCoresUsagePopup(hoverButton);
+        Utils.processorMonitor
+            .getCpuTopologyAsync()
+            .then(topology => {
+            if (!this.cpuCoresUsagePopup)
+                return;
+            const currentCores = this.cpuCoresUsagePopup.cores?.size ?? 0;
+            if (currentCores === topology.length)
+                return;
+            if (this.cpuCoresUsagePopup.cores) {
+                for (const core of this.cpuCoresUsagePopup.cores.values()) {
+                    core.bar?.destroy();
+                    core.bar = undefined;
+                }
+            }
+            this.cpuCoresUsagePopup.close(false);
+            this.cpuCoresUsagePopup.destroy();
+            this.createCoresUsagePopup(hoverButton);
+        })
+            .catch(e => {
+            Utils.error('Error updating CPU cores popup', e);
+        });
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.cpuCoresUsagePopup) {
@@ -327,17 +361,24 @@ export default class ProcessorMenu extends MenuBase {
             hoverButton.style = defaultStyle;
             if (this.cpuCoresUsagePopup) {
                 this.cpuCoresUsagePopup.close(true);
-                Utils.processorMonitor.unlisten(hoverButton, 'cpuCoresUsage');
-                Utils.processorMonitor.unlisten(hoverButton, 'cpuCoresFrequency');
+                this.stopCoresPopupListeners();
             }
         });
         this.addToMenu(hoverButton, 2);
+    }
+    stopCoresPopupListeners() {
+        if (!this.cpuCoresHoverButton)
+            return;
+        Utils.processorMonitor.unlisten(this.cpuCoresHoverButton, 'cpuCoresUsage');
+        Utils.processorMonitor.unlisten(this.cpuCoresHoverButton, 'cpuCoresFrequency');
     }
     createCoresUsagePopup(sourceActor) {
         this.cpuCoresUsagePopup = new MenuBase(sourceActor, 0.05);
         this.cpuCoresUsagePopup.addMenuSection(_('CPU Cores Usage Info'));
         this.cpuCoresUsagePopup.cores = new Map();
         const numCores = Utils.processorMonitor.getCpuTopology().length;
+        if (numCores === 0)
+            return;
         let numRows = 1;
         if (numCores > 16)
             numRows = Math.ceil(numCores / 32) * 2;
@@ -401,7 +442,6 @@ export default class ProcessorMenu extends MenuBase {
         });
         const grid = new Grid({ styleClass: 'astra-monitor-menu-subgrid' });
         this.topProcesses = [];
-        this.queueTopProcessesUpdate = false;
         const numProcesses = 5;
         for (let i = 0; i < numProcesses; i++) {
             const label = new St.Label({
@@ -409,7 +449,7 @@ export default class ProcessorMenu extends MenuBase {
                 styleClass: 'astra-monitor-menu-cmd-name',
                 xExpand: true,
             });
-            grid.addToGrid(label);
+            grid.addToGrid(MenuBase.createLoadingValue(label));
             const percentage = new St.Label({
                 text: '',
                 styleClass: 'astra-monitor-menu-cmd-usage',
@@ -468,7 +508,10 @@ export default class ProcessorMenu extends MenuBase {
     }
     addLoadAverage() {
         this.addMenuSection(_('Load average'));
-        const defaultStyle = 'max-width:150px;';
+        const defaultStyle = 'width:200px;';
+        const loadAverageLabelStyle = 'padding:0.05em 0.3em 0 0;';
+        const loadAverageValueStyle = 'width:3.4em;margin-right:0.4em;padding-top:0.05em;text-align:left;';
+        const lastLoadAverageValueStyle = 'width:3.4em;margin-right:0;padding-top:0.05em;text-align:left;';
         const hoverButton = new St.Button({
             reactive: true,
             trackHover: true,
@@ -489,16 +532,16 @@ export default class ProcessorMenu extends MenuBase {
         const oneMinuteLabel = new St.Label({
             text: pgettext('short for 1 minute', '1m'),
             styleClass: 'astra-monitor-menu-label',
-            style: 'padding-right:0.15em;',
+            style: loadAverageLabelStyle,
         });
         oneMinuteContainer.add_child(oneMinuteLabel);
         const oneMinuteValueLabel = new St.Label({
             text: '-',
             xExpand: true,
             styleClass: 'astra-monitor-menu-key-mid',
+            style: loadAverageValueStyle,
         });
-        oneMinuteContainer.add_child(oneMinuteValueLabel);
-        oneMinuteContainer.set_width(50);
+        oneMinuteContainer.add_child(MenuBase.createLoadingValue(oneMinuteValueLabel));
         this.loadAverageValues.push(oneMinuteValueLabel);
         loadsContainer.add_child(oneMinuteContainer);
         const fiveMinutesContainer = new St.Widget({
@@ -509,16 +552,16 @@ export default class ProcessorMenu extends MenuBase {
         const fiveMinutesLabel = new St.Label({
             text: pgettext('short for 5 minutes', '5m'),
             styleClass: 'astra-monitor-menu-label',
-            style: 'padding-right:0.15em;',
+            style: loadAverageLabelStyle,
         });
         fiveMinutesContainer.add_child(fiveMinutesLabel);
         const fiveMinutesValueLabel = new St.Label({
             text: '-',
             xExpand: true,
             styleClass: 'astra-monitor-menu-key-mid',
+            style: loadAverageValueStyle,
         });
-        fiveMinutesContainer.add_child(fiveMinutesValueLabel);
-        fiveMinutesContainer.set_width(50);
+        fiveMinutesContainer.add_child(MenuBase.createLoadingValue(fiveMinutesValueLabel));
         this.loadAverageValues.push(fiveMinutesValueLabel);
         loadsContainer.add_child(fiveMinutesContainer);
         const fifteenMinutesContainer = new St.Widget({
@@ -529,16 +572,16 @@ export default class ProcessorMenu extends MenuBase {
         const fifteenMinutesLabel = new St.Label({
             text: pgettext('short for 15 minutes', '15m'),
             styleClass: 'astra-monitor-menu-label',
-            style: 'padding-right:0.15em;',
+            style: loadAverageLabelStyle,
         });
         fifteenMinutesContainer.add_child(fifteenMinutesLabel);
         const fifteenMinutesValueLabel = new St.Label({
             text: '-',
             xExpand: true,
             styleClass: 'astra-monitor-menu-key-mid',
+            style: lastLoadAverageValueStyle,
         });
-        fifteenMinutesContainer.add_child(fifteenMinutesValueLabel);
-        fifteenMinutesContainer.set_width(50);
+        fifteenMinutesContainer.add_child(MenuBase.createLoadingValue(fifteenMinutesValueLabel));
         this.loadAverageValues.push(fifteenMinutesValueLabel);
         loadsContainer.add_child(fifteenMinutesContainer);
         grid.addToGrid(loadsContainer, 2);
@@ -560,6 +603,7 @@ export default class ProcessorMenu extends MenuBase {
         });
         this.addToMenu(this.gpuSection.container, 2);
         const updateGpuVisibility = () => {
+            const wasVisible = this.gpuSection.container.visible;
             const processorShow = Config.get_boolean('processor-gpu');
             const gpuHeaderShow = Config.get_boolean('gpu-header-show');
             if (gpuHeaderShow || !processorShow) {
@@ -569,6 +613,12 @@ export default class ProcessorMenu extends MenuBase {
             else {
                 label?.show();
                 this.gpuSection.container.show();
+            }
+            if (this.isOpen && wasVisible !== this.gpuSection.container.visible) {
+                if (this.gpuSection.container.visible)
+                    this.gpuSection.onOpen();
+                else
+                    this.gpuSection.onClose();
             }
         };
         Config.connect(this.gpuSection, 'changed::processor-gpu', updateGpuVisibility.bind(this));
@@ -588,18 +638,24 @@ export default class ProcessorMenu extends MenuBase {
         if (this.gpuSection?.container.visible) {
             this.gpuSection.onOpen();
         }
-        this.clear('cpuUsage');
-        this.update('cpuUsage', true);
-        Utils.processorMonitor.listen(this, 'cpuUsage', this.update.bind(this, 'cpuUsage', false));
-        this.update('graph', true);
+        this.updateFreshOrShowLoading(Utils.processorMonitor, 'cpuUsage', 'cpuUsage', this.showCpuUsageLoading.bind(this));
+        Utils.processorMonitor.listen(this, 'cpuUsage', this.bindOpenUpdate('cpuUsage', this.update.bind(this, 'cpuUsage', false)));
+        this.scheduleTwoSampleOpenUpdate('cpuUsage', Utils.processorMonitor, () => {
+            Utils.processorMonitor.requestUpdate('cpuUsage');
+        });
+        if (this.canUseCachedValue(Utils.processorMonitor, 'cpuUsage'))
+            this.update('graph', true);
         Utils.processorMonitor.listen(this.graph, 'cpuUsage', this.update.bind(this, 'graph', false));
-        this.update('topProcesses', true);
-        Utils.processorMonitor.listen(this, 'topProcesses', this.update.bind(this, 'topProcesses', false));
-        Utils.processorMonitor.requestUpdate('topProcesses');
-        this.queueTopProcessesUpdate = true;
-        this.update('loadAverage', true);
+        this.updateFreshOrShowLoading(Utils.processorMonitor, 'topProcesses', 'topProcesses', this.clear.bind(this, 'topProcesses'));
+        Utils.processorMonitor.listen(this, 'topProcesses', this.bindOpenUpdate('topProcesses', this.update.bind(this, 'topProcesses', false)));
+        this.scheduleTwoSampleOpenUpdate('topProcesses', Utils.processorMonitor, () => {
+            Utils.processorMonitor.requestUpdate('topProcesses');
+        });
+        this.updateFreshOrShowLoading(Utils.processorMonitor, 'loadAverage', 'loadAverage', this.showLoadAverageLoading.bind(this));
         Utils.processorMonitor.listen(this, 'loadAverage', this.update.bind(this, 'loadAverage', false));
-        Utils.processorMonitor.requestUpdate('loadAverage');
+        this.scheduleOpenUpdate('loadAverage', Utils.processorMonitor, () => {
+            Utils.processorMonitor.requestUpdate('loadAverage');
+        });
         this.menuUptimeTimer = Utils.getUptime(bootTime => {
             try {
                 this.menuUptime.text = Utils.formatUptime(bootTime);
@@ -607,8 +663,6 @@ export default class ProcessorMenu extends MenuBase {
             catch (e) {
             }
         });
-        this.clear('gpuUpdate');
-        this.update('gpuUpdate', true);
         const processorGpuShow = Config.get_boolean('processor-gpu');
         const gpuHeaderShow = Config.get_boolean('gpu-header-show');
         if (processorGpuShow && !gpuHeaderShow) {
@@ -617,6 +671,7 @@ export default class ProcessorMenu extends MenuBase {
         }
     }
     onClose() {
+        super.onClose();
         this.menuUptimeTimer?.stop();
         this.menuUptimeTimer = null;
         this.gpuSection?.onClose();
@@ -624,13 +679,23 @@ export default class ProcessorMenu extends MenuBase {
             GLib.source_remove(this.lazyCoresPopupTimer);
             this.lazyCoresPopupTimer = null;
         }
+        this.stopCoresPopupListeners();
         Utils.processorMonitor.unlisten(this, 'cpuUsage');
         Utils.processorMonitor.unlisten(this.graph, 'cpuUsage');
         Utils.processorMonitor.unlisten(this, 'topProcesses');
         Utils.processorMonitor.unlisten(this, 'loadAverage');
         Utils.gpuMonitor?.unlisten(this, 'gpuUpdate');
         Utils.gpuMonitor?.unlisten(this, 'gpuUpdateProcessor');
-        this.queueTopProcessesUpdate = false;
+    }
+    showCpuUsageLoading() {
+        this.processorBar.setUsage([]);
+        for (const label of [this.cpuTotalPerc, this.cpuUserPerc, this.cpuSystemPerc]) {
+            this.setLoading(label, true);
+        }
+    }
+    showLoadAverageLoading() {
+        for (const label of this.loadAverageValues)
+            this.setLoading(label, true);
     }
     clear(code = 'all') {
         if (code === 'all' || code === 'cpuUsage') {
@@ -640,6 +705,7 @@ export default class ProcessorMenu extends MenuBase {
         }
         if (code === 'all' || code === 'topProcesses') {
             for (let i = 0; i < this.topProcesses.length; i++) {
+                this.setLoading(this.topProcesses[i].label, true);
                 this.topProcesses[i].label.text = '';
                 this.topProcesses[i].percentage.text = '';
             }
@@ -647,6 +713,7 @@ export default class ProcessorMenu extends MenuBase {
                 const popup = this.topProcessesPopup?.processes?.get(i);
                 if (!popup)
                     continue;
+                popup.label.text = '';
                 popup.percentage.text = '';
                 popup.description.text = '';
             }
@@ -662,33 +729,28 @@ export default class ProcessorMenu extends MenuBase {
             this.gpuSection?.clear();
         }
     }
-    needsUpdate(code, forced = false) {
-        if (forced) {
-            const valueTime = Utils.processorMonitor.getCurrentValueTime(code);
-            return !(valueTime && Date.now() - valueTime > Utils.processorMonitor.updateFrequency);
-        }
-        return super.needsUpdate(code, forced);
-    }
     update(code, forced = false, ...args) {
         if (!this.needsUpdate(code, forced)) {
             return;
         }
         if (code === 'cpuUsage') {
             const cpuUsage = Utils.processorMonitor.getCurrentValue('cpuUsage');
-            if (!cpuUsage || !cpuUsage.total || isNaN(cpuUsage.total)) {
-                this.cpuTotalPerc.text = '0%';
-                this.processorBar.setUsage([]);
+            if (!cpuUsage || cpuUsage.total === undefined || isNaN(cpuUsage.total)) {
+                this.showCpuUsageLoading();
             }
             else {
+                for (const label of [this.cpuTotalPerc, this.cpuUserPerc, this.cpuSystemPerc]) {
+                    this.setLoading(label, false);
+                }
                 this.cpuTotalPerc.text = cpuUsage.total.toFixed(0) + '%';
                 this.processorBar.setUsage([cpuUsage]);
             }
-            if (!cpuUsage || !cpuUsage.user || isNaN(cpuUsage.user))
-                this.cpuUserPerc.text = '0%';
+            if (!cpuUsage || cpuUsage.user === undefined || isNaN(cpuUsage.user))
+                this.cpuUserPerc.text = '';
             else
                 this.cpuUserPerc.text = cpuUsage.user.toFixed(0) + '%';
-            if (!cpuUsage || !cpuUsage.system || isNaN(cpuUsage.system))
-                this.cpuSystemPerc.text = '0%';
+            if (!cpuUsage || cpuUsage.system === undefined || isNaN(cpuUsage.system))
+                this.cpuSystemPerc.text = '';
             else
                 this.cpuSystemPerc.text = cpuUsage.system.toFixed(0) + '%';
             if (this.cpuCategoryUsagePopup && cpuUsage && cpuUsage.raw) {
@@ -746,6 +808,8 @@ export default class ProcessorMenu extends MenuBase {
             if (!frequencies || !Array.isArray(frequencies) || frequencies.length === 0) {
                 for (let i = 0; i < numCores; i++) {
                     const core = this.cpuCoresUsagePopup.cores?.get(i);
+                    if (!core)
+                        continue;
                     core.value.text = '-';
                     core.value.show();
                 }
@@ -774,17 +838,12 @@ export default class ProcessorMenu extends MenuBase {
             return;
         }
         if (code === 'topProcesses') {
-            if (this.queueTopProcessesUpdate) {
-                if (Utils.processorMonitor.dueIn >= 300)
-                    Utils.processorMonitor.requestUpdate('topProcesses');
-                this.queueTopProcessesUpdate = false;
-                return;
-            }
             const topProcesses = Utils.processorMonitor.getCurrentValue('topProcesses');
             if (!topProcesses || !Array.isArray(topProcesses)) {
                 for (let i = 0; i < this.topProcesses.length; i++) {
                     const topProcess = this.topProcesses[i];
                     if (topProcess) {
+                        this.setLoading(topProcess.label, true);
                         topProcess.label.text = '';
                         topProcess.percentage.text = '';
                     }
@@ -799,13 +858,31 @@ export default class ProcessorMenu extends MenuBase {
                 }
             }
             else {
-                for (let i = 0; i < topProcesses.length; i++) {
+                const loading = this.isOpenUpdatePending('topProcesses');
+                for (let i = 0; i < ProcessorMonitor.TOP_PROCESSES_LIMIT; i++) {
+                    if (!topProcesses[i]) {
+                        if (this.topProcesses[i]) {
+                            this.setLoading(this.topProcesses[i].label, loading);
+                            this.topProcesses[i].label.text = loading ? '' : '-';
+                            this.topProcesses[i].percentage.text = '';
+                        }
+                        if (this.topProcessesPopup) {
+                            const popup = this.topProcessesPopup.processes?.get(i);
+                            if (!popup)
+                                continue;
+                            popup.label.text = '';
+                            popup.description.text = '';
+                            popup.percentage.text = '';
+                        }
+                        continue;
+                    }
                     const perCore = Config.get_boolean('processor-menu-top-processes-percentage-core');
                     const topProcess = topProcesses[i];
                     const process = topProcess.process;
                     const cpu = topProcess.cpu;
-                    const numCores = Utils.processorMonitor.getCpuTopology().length;
+                    const numCores = Utils.processorMonitor.getCpuTopology().length || 1;
                     if (this.topProcesses[i]) {
+                        this.setLoading(this.topProcesses[i].label, false);
                         this.topProcesses[i].label.text = process.exec;
                         if (perCore)
                             this.topProcesses[i].percentage.text =
@@ -834,20 +911,21 @@ export default class ProcessorMenu extends MenuBase {
             }
             const loadAverage = Utils.processorMonitor.getCurrentValue('loadAverage');
             if (!loadAverage) {
-                for (let i = 0; i < this.loadAverageValues.length; i++)
-                    this.loadAverageValues[i].text = '-';
+                this.showLoadAverageLoading();
             }
             else {
+                for (const label of this.loadAverageValues)
+                    this.setLoading(label, false);
                 if (!Object.hasOwnProperty.call(loadAverage, 'load1m'))
-                    this.loadAverageValues[0].text = '-';
+                    this.loadAverageValues[0].text = '';
                 else
                     this.loadAverageValues[0].text = loadAverage.load1m.toFixed(2);
                 if (!Object.hasOwnProperty.call(loadAverage, 'load5m'))
-                    this.loadAverageValues[1].text = '-';
+                    this.loadAverageValues[1].text = '';
                 else
                     this.loadAverageValues[1].text = loadAverage.load5m.toFixed(2);
                 if (!Object.hasOwnProperty.call(loadAverage, 'load15m'))
-                    this.loadAverageValues[2].text = '-';
+                    this.loadAverageValues[2].text = '';
                 else
                     this.loadAverageValues[2].text = loadAverage.load15m.toFixed(2);
             }
@@ -883,6 +961,7 @@ export default class ProcessorMenu extends MenuBase {
         this.cpuCategoryUsagePopup = undefined;
         this.cpuCoresUsagePopup?.destroy();
         this.cpuCoresUsagePopup = undefined;
+        this.cpuCoresHoverButton = undefined;
         this.topProcessesPopup?.destroy();
         this.topProcessesPopup = undefined;
         super.destroy();

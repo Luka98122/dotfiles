@@ -57,7 +57,7 @@ export default class MemoryMenu extends MenuBase {
             styleClass: 'astra-monitor-menu-value',
             style: 'width:4.2em;',
         });
-        grid.addToGrid(this.memoryTotalQty);
+        grid.addToGrid(MenuBase.createLoadingValue(this.memoryTotalQty));
         label = new St.Label({
             text: _('Allocated:'),
             styleClass: 'astra-monitor-menu-label',
@@ -69,7 +69,7 @@ export default class MemoryMenu extends MenuBase {
             styleClass: 'astra-monitor-menu-value',
             style: 'width:4.2em;',
         });
-        grid.addToGrid(this.memoryAllocatedQty);
+        grid.addToGrid(MenuBase.createLoadingValue(this.memoryAllocatedQty));
         label = new St.Label({
             text: _('Used:'),
             styleClass: 'astra-monitor-menu-label',
@@ -81,7 +81,7 @@ export default class MemoryMenu extends MenuBase {
             styleClass: 'astra-monitor-menu-value',
             style: 'width:4.2em;',
         });
-        grid.addToGrid(this.memoryUsedQty);
+        grid.addToGrid(MenuBase.createLoadingValue(this.memoryUsedQty));
         label = new St.Label({
             text: _('Free:'),
             styleClass: 'astra-monitor-menu-label',
@@ -93,7 +93,7 @@ export default class MemoryMenu extends MenuBase {
             styleClass: 'astra-monitor-menu-value',
             style: 'width:4.2em;',
         });
-        grid.addToGrid(this.memoryFreeQty);
+        grid.addToGrid(MenuBase.createLoadingValue(this.memoryFreeQty));
         {
             const barGrid = new St.Widget({
                 layoutManager: new Clutter.GridLayout({
@@ -261,7 +261,7 @@ export default class MemoryMenu extends MenuBase {
                 styleClass: 'astra-monitor-menu-cmd-name',
                 xExpand: true,
             });
-            grid.addToGrid(label);
+            grid.addToGrid(MenuBase.createLoadingValue(label));
             const usage = new St.Label({
                 text: '',
                 styleClass: 'astra-monitor-menu-cmd-usage',
@@ -469,24 +469,43 @@ export default class MemoryMenu extends MenuBase {
         this.memorySwapPopup.addToMenu(devicesGrid, 3);
     }
     async onOpen() {
-        this.update('memoryUsage', true);
+        this.updateFreshOrShowLoading(Utils.memoryMonitor, 'memoryUsage', 'memoryUsage', this.showMemoryUsageLoading.bind(this));
         Utils.memoryMonitor.listen(this, 'memoryUsage', this.update.bind(this, 'memoryUsage', false));
-        this.update('graph', true);
+        this.scheduleOpenUpdate('memoryUsage', Utils.memoryMonitor, () => {
+            Utils.memoryMonitor.requestUpdate('memoryUsage');
+        });
+        if (this.canUseCachedValue(Utils.memoryMonitor, 'memoryUsage'))
+            this.update('graph', true);
         Utils.memoryMonitor.listen(this.graph, 'memoryUsage', this.update.bind(this, 'graph', false));
-        this.clear('topProcesses');
-        this.update('topProcesses', true);
+        this.updateFreshOrShowLoading(Utils.memoryMonitor, 'topProcesses', 'topProcesses', this.clear.bind(this, 'topProcesses'));
         Utils.memoryMonitor.listen(this, 'topProcesses', this.update.bind(this, 'topProcesses', false));
-        Utils.memoryMonitor.requestUpdate('topProcesses');
-        this.clear('swapUsage');
-        this.update('swapUsage');
+        this.scheduleOpenUpdate('topProcesses', Utils.memoryMonitor, () => {
+            Utils.memoryMonitor.requestUpdate('topProcesses');
+        });
+        this.updateFreshOrShowLoading(Utils.memoryMonitor, 'swapUsage', 'swapUsage', this.clear.bind(this, 'swapUsage'));
         Utils.memoryMonitor.listen(this, 'swapUsage', this.update.bind(this, 'swapUsage', false));
-        Utils.memoryMonitor.requestUpdate('swapUsage');
+        this.scheduleOpenUpdate('swapUsage', Utils.memoryMonitor, () => {
+            Utils.memoryMonitor.requestUpdate('swapUsage');
+        });
     }
     onClose() {
+        super.onClose();
         Utils.memoryMonitor.unlisten(this, 'memoryUsage');
         Utils.memoryMonitor.unlisten(this.graph, 'memoryUsage');
         Utils.memoryMonitor.unlisten(this, 'topProcesses');
         Utils.memoryMonitor.unlisten(this, 'swapUsage');
+    }
+    showMemoryUsageLoading() {
+        this.memoryBar.setUsage([]);
+        this.memoryUsagePercLabel.text = '';
+        for (const label of [
+            this.memoryTotalQty,
+            this.memoryUsedQty,
+            this.memoryAllocatedQty,
+            this.memoryFreeQty,
+        ]) {
+            this.setLoading(label, true);
+        }
     }
     clear(code = 'all') {
         if (code === 'all' || code === 'memoryUsage') {
@@ -497,7 +516,9 @@ export default class MemoryMenu extends MenuBase {
         }
         if (code === 'all' || code === 'topProcesses') {
             for (let i = 0; i < this.topProcesses.length; i++) {
+                this.setLoading(this.topProcesses[i].label, true);
                 this.topProcesses[i].label.text = '';
+                this.topProcesses[i].usage.text = '';
                 this.topProcesses[i].percentage.text = '';
             }
             for (let i = 0; i < MemoryMonitor.TOP_PROCESSES_LIMIT; i++) {
@@ -525,6 +546,14 @@ export default class MemoryMenu extends MenuBase {
             const unit = Config.get_string('memory-unit');
             const memoryUsage = Utils.memoryMonitor.getCurrentValue('memoryUsage');
             if (memoryUsage && memoryUsage.total && !isNaN(memoryUsage.total)) {
+                for (const label of [
+                    this.memoryTotalQty,
+                    this.memoryUsedQty,
+                    this.memoryAllocatedQty,
+                    this.memoryFreeQty,
+                ]) {
+                    this.setLoading(label, false);
+                }
                 this.memoryBar.setUsage([memoryUsage]);
                 this.memoryTotalQty.text = Utils.formatBytes(memoryUsage.total, unit, 3);
                 this.memoryUsagePercLabel.text =
@@ -580,10 +609,7 @@ export default class MemoryMenu extends MenuBase {
                 }
             }
             else {
-                this.memoryBar.setUsage([]);
-                this.memoryTotalQty.text = '';
-                this.memoryUsedQty.text = '';
-                this.memoryAllocatedQty.text = '';
+                this.showMemoryUsageLoading();
             }
             return;
         }
@@ -598,6 +624,7 @@ export default class MemoryMenu extends MenuBase {
                 for (let i = 0; i < this.topProcesses.length; i++) {
                     const topProcess = this.topProcesses[i];
                     if (topProcess) {
+                        this.setLoading(topProcess.label, true);
                         topProcess.label.text = '';
                         topProcess.usage.text = '';
                         topProcess.percentage.text = '';
@@ -615,12 +642,32 @@ export default class MemoryMenu extends MenuBase {
             }
             else {
                 const unit = Config.get_string('memory-unit');
-                for (let i = 0; i < topProcesses.length; i++) {
+                const loading = this.isOpenUpdatePending('topProcesses');
+                for (let i = 0; i < MemoryMonitor.TOP_PROCESSES_LIMIT; i++) {
+                    if (!topProcesses[i]) {
+                        if (this.topProcesses[i]) {
+                            this.setLoading(this.topProcesses[i].label, loading);
+                            this.topProcesses[i].label.text = loading ? '' : '-';
+                            this.topProcesses[i].usage.text = '';
+                            this.topProcesses[i].percentage.text = '';
+                        }
+                        if (this.topProcessesPopup) {
+                            const popup = this.topProcessesPopup.processes?.get(i);
+                            if (!popup)
+                                continue;
+                            popup.label.text = '';
+                            popup.description.text = '';
+                            popup.usage.text = '';
+                            popup.percentage.text = '';
+                        }
+                        continue;
+                    }
                     const topProcess = topProcesses[i];
                     const process = topProcess.process;
                     const usage = topProcess.usage;
                     const percentage = topProcess.percentage;
                     if (this.topProcesses[i]) {
+                        this.setLoading(this.topProcesses[i].label, false);
                         this.topProcesses[i].label.text = process.exec;
                         this.topProcesses[i].usage.text = Utils.formatBytes(usage, unit, 3);
                         this.topProcesses[i].percentage.text = percentage.toFixed(1) + '%';
@@ -692,7 +739,7 @@ export default class MemoryMenu extends MenuBase {
                         if (this.memorySwapPopup.devices !== hash) {
                             const devicesGrid = this.memorySwapPopup.devicesGrid;
                             if (devicesGrid) {
-                                devicesGrid.remove_all_children();
+                                devicesGrid.clear();
                                 for (let i = 0; i < swapUsage.devices.length; i++) {
                                     const device = swapUsage.devices[i];
                                     const deviceGrid = new Grid({
@@ -719,6 +766,7 @@ export default class MemoryMenu extends MenuBase {
                                     }));
                                     devicesGrid.addToGrid(deviceGrid);
                                 }
+                                this.memorySwapPopup.devices = hash;
                             }
                         }
                     }
@@ -760,6 +808,8 @@ export default class MemoryMenu extends MenuBase {
         this.memoryUsagePopup = undefined;
         this.topProcessesPopup?.destroy();
         this.topProcessesPopup = undefined;
+        this.swapBar?.destroy();
+        this.swapBar = undefined;
         this.memorySwapPopup?.destroy();
         this.memorySwapPopup = undefined;
         super.destroy();

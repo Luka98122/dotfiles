@@ -40,6 +40,9 @@ export default class Monitor {
         const dueInMicroseconds = this.nextCallTime - GLib.get_monotonic_time();
         return dueInMicroseconds / 1000;
     }
+    get updateFrequencyMs() {
+        return this.updateFrequency * 1000;
+    }
     get historyLength() {
         return this.usageHistoryLength;
     }
@@ -145,6 +148,23 @@ export default class Monitor {
         if (times === undefined)
             return 0;
         return times[0];
+    }
+    getValueAgeMs(key) {
+        const valueTime = this.getCurrentValueTime(key);
+        if (!valueTime)
+            return null;
+        return Date.now() - valueTime;
+    }
+    hasFreshValue(key, maxAgeMs) {
+        const value = this.getCurrentValue(key);
+        if (value === null || value === undefined)
+            return false;
+        const valueAge = this.getValueAgeMs(key);
+        return valueAge !== null && valueAge <= maxAgeMs;
+    }
+    isDueWithin(ms) {
+        const dueIn = this.dueIn;
+        return dueIn >= 0 && dueIn <= ms;
     }
     resetUsageHistory(key) {
         this.usageHistory.set(key, []);

@@ -25,6 +25,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import Header from '../header.js';
 import Config from '../config.js';
+import Signal from '../signal.js';
 import Utils from '../utils/utils.js';
 import StorageMenu from './storageMenu.js';
 import StorageGraph from './storageGraph.js';
@@ -47,7 +48,7 @@ export default GObject.registerClass(class StorageHeader extends Header {
         this.setMenu(menu);
         this.resetMaxWidths();
         Config.connect(this, 'changed::storage-indicators-order', this.addOrReorderIndicators.bind(this));
-        Config.connect(this, 'changed::visible', this.resetMaxWidths.bind(this));
+        Signal.connect(this, 'notify::visible', this.resetMaxWidths.bind(this));
         Config.connect(this, 'changed::storage-header-io', this.resetMaxWidths.bind(this));
         Config.connect(this, 'changed::headers-font-family', this.resetMaxWidths.bind(this));
         Config.connect(this, 'changed::headers-font-size', this.resetMaxWidths.bind(this));
@@ -510,6 +511,7 @@ export default GObject.registerClass(class StorageHeader extends Header {
         this.tooltipMenu.close(false);
     }
     destroy() {
+        Signal.disconnect(this, 'notify::visible');
         Config.clear(this);
         Utils.storageMonitor.unlisten(this);
         if (this.icon) {
@@ -531,12 +533,12 @@ export default GObject.registerClass(class StorageHeader extends Header {
         }
         if (this.value) {
             Config.clear(this.value);
-            Utils.memoryMonitor.unlisten(this.value);
+            Utils.storageMonitor.unlisten(this.value);
             this.value = undefined;
         }
         if (this.free) {
             Config.clear(this.free);
-            Utils.memoryMonitor.unlisten(this.free);
+            Utils.storageMonitor.unlisten(this.free);
             this.free = undefined;
         }
         if (this.ioBars) {

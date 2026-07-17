@@ -31,6 +31,7 @@ export default class StorageMonitor extends Monitor {
     }
     constructor() {
         super('Storage Monitor');
+        this.storageIOTopStarting = false;
         this.disksCache = new Map();
         this.topProcessesCache = new TopProcessesCache(this.updateFrequency);
         this.diskChecks = {};
@@ -42,7 +43,9 @@ export default class StorageMonitor extends Monitor {
         this.updateStorageInfoTask = new CancellableTaskManager();
         this.updateStorageIOTopTask = new ContinuousTaskManager();
         this.updateStorageIOTopTask.listen(this, this.updateStorageIOTop.bind(this));
-        this.checkMainDisk();
+        this.checkMainDiskAsync().catch(e => {
+            Utils.error('Error checking main disk', e);
+        });
         this.reset();
         this.dataSourcesInit();
         const enabled = Config.get_boolean('storage-header-show');
@@ -115,13 +118,18 @@ export default class StorageMonitor extends Monitor {
         this.updateStorageInfoTask?.cancel();
         this.disksCache?.clear();
     }
-    checkMainDisk() {
+    async checkMainDiskAsync(disks) {
         let storageMain = Config.get_string('storage-main');
-        const disks = Utils.listDisksSync();
-        if (!storageMain || storageMain === '[default]' || !disks.has(storageMain)) {
-            const defaultId = Utils.findDefaultDisk(disks);
+        const diskList = disks ?? (await Utils.listDisksAsync());
+        if (!storageMain || storageMain === '[default]' || !diskList.has(storageMain)) {
+            const defaultId = Utils.findDefaultDisk(diskList);
             if (defaultId !== null) {
-                Config.set('storage-main', defaultId, 'string');
+                const currentStorageMain = Config.get_string('storage-main');
+                if (!currentStorageMain ||
+                    currentStorageMain === '[default]' ||
+                    !diskList.has(currentStorageMain)) {
+                    Config.set('storage-main', defaultId, 'string');
+                }
                 storageMain = defaultId;
             }
         }
@@ -135,24 +143,37 @@ export default class StorageMonitor extends Monitor {
         this.stopIOTop();
         this.reset();
     }
-    startIOTop() {
-        if (this.updateStorageIOTopTask?.isRunning ?? false) {
+    async startIOTop() {
+        if ((this.updateStorageIOTopTask?.isRunning ?? false) || this.storageIOTopStarting) {
             return;
         }
-        const pkexecPath = Utils.commandPathLookup('pkexec --version');
-        if (pkexecPath === false) {
-            Utils.error('pkexec not found');
-            return;
+        this.storageIOTopStarting = true;
+        try {
+            const pkexecPath = await Utils.getPkexecPathAsync();
+            if (pkexecPath === false) {
+                Utils.error('pkexec not found');
+                return;
+            }
+            const iotopPath = await Utils.getIotopPathAsync();
+            if (iotopPath === false) {
+                Utils.error('iotop not found');
+                return;
+            }
+            if (this.updateStorageIOTopTask?.isRunning ?? false)
+                return;
+            const interval = Math.max(1, Math.min(Math.round(this.updateFrequency), 15));
+            const num = Math.max(1, Math.round(60 / interval));
+            const command = `${pkexecPath}pkexec ${iotopPath}iotop -bPokq -d ${interval} -n ${num}`;
+            this.updateStorageIOTopTask.start(command, {
+                flush: { idle: 100 },
+            });
         }
-        const iotopPath = Utils.commandPathLookup('iotop --version');
-        const interval = Math.max(1, Math.min(Math.round(this.updateFrequency), 15));
-        const num = Math.max(1, Math.round(60 / interval));
-        const command = `${pkexecPath}pkexec ${iotopPath}iotop -bPokq -d ${interval} -n ${num}`;
-        this.updateStorageIOTopTask.start(command, {
-            flush: { idle: 100 },
-        });
+        finally {
+            this.storageIOTopStarting = false;
+        }
     }
     stopIOTop() {
+        this.storageIOTopStarting = false;
         if (this.updateStorageIOTopTask?.isRunning) {
             this.updateStorageIOTopTask.stop();
         }
@@ -334,16 +355,18 @@ export default class StorageMonitor extends Monitor {
         const disks = await Utils.listDisksAsync(this.updateStorageUsageTask);
         try {
             if (!mainDisk || mainDisk === '[default]')
-                mainDisk = this.checkMainDisk();
+                mainDisk = await this.checkMainDiskAsync(disks);
             let disk = disks.get(mainDisk || '');
             if (!disk) {
-                mainDisk = this.checkMainDisk();
+                mainDisk = await this.checkMainDiskAsync(disks);
                 disk = disks.get(mainDisk || '');
             }
             if (!disk || !disk.path)
                 return false;
             const path = disk.path.replace(/[^a-zA-Z0-9/-]/g, '');
-            const lsblkPath = Utils.commandPathLookup('lsblk -V');
+            const lsblkPath = await Utils.getLsblkPathAsync();
+            if (lsblkPath === false)
+                return false;
             const result = await Utils.runAsyncCommand(`${lsblkPath}lsblk -Jb -o ID,SIZE,FSUSE% ${path}`, this.updateStorageUsageTask);
             if (result) {
                 const json = JSON.parse(result);
@@ -372,7 +395,7 @@ export default class StorageMonitor extends Monitor {
         let mainDisk = Config.get_string('storage-main');
         try {
             if (!mainDisk || mainDisk === '[default]')
-                mainDisk = this.checkMainDisk();
+                mainDisk = await this.checkMainDiskAsync();
             if (!mainDisk)
                 return false;
             const disk = await this.getCachedDisk(mainDisk);
@@ -401,16 +424,11 @@ export default class StorageMonitor extends Monitor {
         }
         return false;
     }
-    getSectorSize(device) {
+    async getSectorSizeAsync(device) {
         if (this.sectorSizes[device] === undefined) {
-            const fileContents = GLib.file_get_contents(`/sys/block/${device}/queue/hw_sector_size`);
-            if (fileContents && fileContents[0]) {
-                const decoder = new TextDecoder('utf8');
-                this.sectorSizes[device] = parseInt(decoder.decode(fileContents[1]));
-            }
-            else {
-                this.sectorSizes[device] = 512;
-            }
+            const fileContents = await Utils.readFileAsync(`/sys/block/${device}/queue/hw_sector_size`, true);
+            const sectorSize = parseInt(fileContents, 10);
+            this.sectorSizes[device] = isNaN(sectorSize) ? 512 : sectorSize;
         }
         return this.sectorSizes[device];
     }
@@ -442,6 +460,23 @@ export default class StorageMonitor extends Monitor {
         if (detailed)
             devices = new Map();
         let lastSectorSize = -1;
+        const sectorSizePromises = [];
+        for (const device of procDiskstatsValue) {
+            const fields = device.trim().split(/\s+/);
+            if (fields.length < 10)
+                continue;
+            const deviceName = fields[2];
+            if (deviceName.startsWith('loop'))
+                continue;
+            if (this.ignored.includes(deviceName))
+                continue;
+            if (this.ignoredRegex !== null && this.ignoredRegex.test(deviceName))
+                continue;
+            const isPartition = !this.isDisk(deviceName);
+            if (!isPartition && this.sectorSizes[deviceName] === undefined)
+                sectorSizePromises.push(this.getSectorSizeAsync(deviceName));
+        }
+        await Promise.all(sectorSizePromises);
         for (const device of procDiskstatsValue) {
             const fields = device.trim().split(/\s+/);
             if (fields.length < 10)
@@ -457,7 +492,7 @@ export default class StorageMonitor extends Monitor {
             const readSectors = parseInt(fields[5]);
             const writtenSectors = parseInt(fields[9]);
             if (!isPartition)
-                lastSectorSize = this.getSectorSize(deviceName);
+                lastSectorSize = this.sectorSizes[deviceName] ?? 512;
             if (detailed && devices !== null) {
                 devices.set(deviceName, {
                     bytesRead: readSectors * lastSectorSize,
@@ -672,7 +707,9 @@ export default class StorageMonitor extends Monitor {
     }
     async updateStorageInfo() {
         try {
-            const path = Utils.commandPathLookup('lsblk -V');
+            const path = await Utils.getLsblkPathAsync();
+            if (path === false)
+                return false;
             const result = await Utils.runAsyncCommand(`${path}lsblk -JbO`, this.updateStorageInfoTask);
             const map = new Map();
             const blockToInfo = (data) => {

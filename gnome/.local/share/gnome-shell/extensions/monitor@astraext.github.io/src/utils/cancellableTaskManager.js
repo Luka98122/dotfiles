@@ -76,14 +76,19 @@ export default class CancellableTaskManager {
     }
     setSubprocess(subprocess) {
         if (this.cancelId !== undefined) {
+            this.taskCancellable?.disconnect(this.cancelId);
+            this.cancelId = undefined;
+        }
+        const cancellable = this.taskCancellable;
+        if (!cancellable || cancellable.is_cancelled()) {
             try {
-                this.taskCancellable?.disconnect(this.cancelId);
+                subprocess.force_exit();
             }
             catch (_) {
             }
-            this.cancelId = undefined;
+            return;
         }
-        this.cancelId = this.cancellable.connect(() => {
+        this.cancelId = cancellable.connect(() => {
             try {
                 subprocess.force_exit();
             }
@@ -103,11 +108,7 @@ export default class CancellableTaskManager {
             catch (_) {
             }
             if (this.cancelId !== undefined) {
-                try {
-                    this.taskCancellable.disconnect(this.cancelId);
-                }
-                catch (_) {
-                }
+                this.taskCancellable.disconnect(this.cancelId);
                 this.cancelId = undefined;
             }
         }

@@ -17,85 +17,125 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+import GLib from 'gi://GLib';
 export default class XMLParser {
     constructor() {
         this.pos = 0;
-        this.stack = [];
+        this.objStack = [];
         this.currentObj = {};
         this.currentTagName = '';
         this.xml = '';
+        this.parseQueue = Promise.resolve();
     }
-    parse(xml, skips = []) {
+    parse(xml, skips = [], maxLockMs = 1) {
+        const run = this.parseQueue.then(() => this.doParse(xml, skips, maxLockMs));
+        this.parseQueue = run.then(() => undefined, () => undefined);
+        return run;
+    }
+    async doParse(xml, skips, maxLockMs) {
         this.xml = xml;
         this.resetParser();
         this.skipDeclarations();
-        let rootObjName = '';
-        const rootObj = {};
-        while (this.pos < this.xml.length) {
-            const nextLessThan = this.xml.indexOf('<', this.pos);
-            if (nextLessThan === -1)
-                break;
-            if (nextLessThan !== this.pos) {
-                const textContent = this.parseTextContent(this.pos);
-                if (textContent && this.currentObj) {
-                    this.currentObj['#text'] = textContent;
-                }
-            }
-            this.pos = nextLessThan;
-            this.skipToNextImportantChar();
-            if (this.xml[this.pos] === '<') {
-                if (this.xml[this.pos + 1] === '/') {
-                    this.pos = this.xml.indexOf('>', this.pos) + 1;
-                    const finishedObject = this.stack.pop();
-                    if (this.stack.length === 0) {
-                        if (rootObjName) {
-                            rootObj[rootObjName] = finishedObject?.obj ?? {};
-                            return rootObj;
-                        }
-                        return finishedObject?.obj;
+        const maxLockUs = Math.max(0, maxLockMs) * 1000;
+        let sliceStart = GLib.get_monotonic_time();
+        let iterations = 0;
+        const yieldIfNeeded = () => {
+            if (maxLockUs <= 0)
+                return null;
+            if ((++iterations & 31) !== 0)
+                return null;
+            if (GLib.get_monotonic_time() - sliceStart < maxLockUs)
+                return null;
+            return new Promise(resolve => {
+                GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                    sliceStart = GLib.get_monotonic_time();
+                    resolve();
+                    return GLib.SOURCE_REMOVE;
+                });
+            });
+        };
+        try {
+            let rootObjName = '';
+            const rootObj = {};
+            while (this.pos < this.xml.length) {
+                const nextLessThan = this.xml.indexOf('<', this.pos);
+                if (nextLessThan === -1)
+                    break;
+                if (nextLessThan !== this.pos) {
+                    const textContent = this.parseTextContent(this.pos);
+                    if (textContent && this.currentObj) {
+                        this.currentObj['#text'] = textContent;
                     }
-                    this.currentObj = this.stack[this.stack.length - 1].obj;
                 }
-                else {
-                    if (!this.parseTag())
-                        break;
-                    if (skips.includes(this.currentTagName)) {
-                        this.skipAttributesAndBlock(this.currentTagName);
+                this.pos = nextLessThan;
+                this.skipToNextImportantChar();
+                if (this.xml[this.pos] === '<') {
+                    if (this.xml.startsWith('<!--', this.pos)) {
+                        const endComment = this.xml.indexOf('-->', this.pos);
+                        this.pos = endComment !== -1 ? endComment + 3 : this.xml.length;
                         continue;
                     }
-                    const attributes = this.parseAttributes();
-                    const newObj = { ...attributes };
-                    if (!this.currentObj) {
-                        rootObjName = this.currentTagName;
-                        this.currentObj = newObj;
+                    if (this.xml[this.pos + 1] === '/') {
+                        this.pos = this.xml.indexOf('>', this.pos) + 1;
+                        const finishedObject = this.objStack.pop();
+                        if (this.objStack.length === 0) {
+                            if (rootObjName) {
+                                rootObj[rootObjName] = finishedObject ?? {};
+                                return rootObj;
+                            }
+                            return finishedObject;
+                        }
+                        this.currentObj = this.objStack[this.objStack.length - 1];
                     }
                     else {
-                        if (!this.currentObj[this.currentTagName]) {
-                            this.currentObj[this.currentTagName] = newObj;
+                        if (!this.parseTag())
+                            break;
+                        if (skips.includes(this.currentTagName)) {
+                            await this.skipAttributesAndBlock(this.currentTagName, yieldIfNeeded);
+                            continue;
                         }
-                        else if (Array.isArray(this.currentObj[this.currentTagName])) {
-                            this.currentObj[this.currentTagName].push(newObj);
+                        const newObj = {};
+                        this.parseAttributesInto(newObj);
+                        if (!this.currentObj) {
+                            rootObjName = this.currentTagName;
+                            this.currentObj = newObj;
                         }
                         else {
-                            this.currentObj[this.currentTagName] = [
-                                this.currentObj[this.currentTagName],
-                                newObj,
-                            ];
+                            if (!this.currentObj[this.currentTagName]) {
+                                this.currentObj[this.currentTagName] = newObj;
+                            }
+                            else if (Array.isArray(this.currentObj[this.currentTagName])) {
+                                this.currentObj[this.currentTagName].push(newObj);
+                            }
+                            else {
+                                this.currentObj[this.currentTagName] = [
+                                    this.currentObj[this.currentTagName],
+                                    newObj,
+                                ];
+                            }
                         }
+                        this.objStack.push(newObj);
+                        this.currentObj = newObj;
                     }
-                    this.stack.push({ tagName: this.currentTagName, obj: newObj });
-                    this.currentObj = newObj;
+                }
+                else {
+                    this.pos++;
+                }
+                const yieldPromise = yieldIfNeeded();
+                if (yieldPromise) {
+                    await yieldPromise;
                 }
             }
-            else {
-                this.pos++;
-            }
+            return undefined;
         }
-        return undefined;
+        finally {
+            this.xml = '';
+            this.resetParser();
+        }
     }
     resetParser() {
         this.pos = 0;
-        this.stack = [];
+        this.objStack.length = 0;
         this.currentObj = undefined;
         this.currentTagName = '';
     }
@@ -148,13 +188,12 @@ export default class XMLParser {
         this.pos = endOfTagName;
         return true;
     }
-    parseAttributes() {
-        const attrs = {};
+    parseAttributesInto(attrs) {
         while (this.xml[this.pos] === ' ')
             this.pos++;
         if (this.xml[this.pos] === '>') {
             this.pos++;
-            return attrs;
+            return;
         }
         while (this.pos < this.xml.length && this.xml[this.pos] !== '>') {
             let nextSpace = this.xml.indexOf(' ', this.pos);
@@ -210,7 +249,6 @@ export default class XMLParser {
                 break;
             }
         }
-        return attrs;
     }
     parseTextContent(startPos) {
         const endPos = this.xml.indexOf('<', startPos);
@@ -223,7 +261,9 @@ export default class XMLParser {
         this.pos = endPos;
         return textContent;
     }
-    skipAttributesAndBlock(tagName) {
+    async skipAttributesAndBlock(tagName, yieldIfNeeded) {
+        const closePrefix = `</${tagName}`;
+        const openPrefix = `<${tagName}`;
         const endOfTag = this.xml.indexOf('>', this.pos);
         if (endOfTag === -1) {
             this.pos = this.xml.length;
@@ -240,16 +280,20 @@ export default class XMLParser {
         this.pos = endOfTag + 1;
         let level = 1;
         while (this.pos < this.xml.length && level > 0) {
+            const yieldPromise = yieldIfNeeded();
+            if (yieldPromise) {
+                await yieldPromise;
+            }
             const nextOpen = this.xml.indexOf('<', this.pos);
             if (nextOpen === -1) {
                 this.pos = this.xml.length;
                 break;
             }
             this.pos = nextOpen;
-            if (this.xml.startsWith(`</${tagName}`, this.pos)) {
+            if (this.xml.startsWith(closePrefix, this.pos)) {
                 level--;
             }
-            else if (this.xml.startsWith(`<${tagName}`, this.pos)) {
+            else if (this.xml.startsWith(openPrefix, this.pos)) {
                 level++;
             }
             const nextClose = this.xml.indexOf('>', this.pos + 1);

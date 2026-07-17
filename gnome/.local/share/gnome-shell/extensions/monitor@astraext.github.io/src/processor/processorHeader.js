@@ -41,6 +41,15 @@ export default GObject.registerClass(class ProcessorHeader extends Header {
         this.addOrReorderIndicators();
         const menu = new ProcessorMenu(this, 0.5, MenuBase.arrowAlignement);
         this.setMenu(menu);
+        Utils.processorMonitor
+            .getCpuTopologyAsync()
+            .then(() => {
+            if (this.bars && Config.get_boolean('processor-header-bars-core'))
+                this.rebuildBars();
+        })
+            .catch(e => {
+            Utils.error('Error updating processor header topology', e);
+        });
         Config.connect(this, 'changed::processor-indicators-order', this.addOrReorderIndicators.bind(this));
         Config.connect(this, 'changed::processor-header-bars-core', this.rebuildBars.bind(this));
     }
@@ -165,7 +174,7 @@ export default GObject.registerClass(class ProcessorHeader extends Header {
         let numBars = 1;
         const perCoreBars = Config.get_boolean('processor-header-bars-core');
         if (perCoreBars)
-            numBars = Utils.processorMonitor.getCpuTopology().length;
+            numBars = Utils.processorMonitor.getCpuTopology().length || 1;
         this.bars = new ProcessorBars({
             numBars: numBars,
             header: true,
@@ -267,7 +276,7 @@ export default GObject.registerClass(class ProcessorHeader extends Header {
             return;
         }
         if (Config.get_boolean('processor-header-percentage-core')) {
-            const numberOfCores = Utils.processorMonitor.getCpuTopology().length;
+            const numberOfCores = Utils.processorMonitor.getCpuTopology().length || 1;
             this.percentage.text = (cpuUsage.total * numberOfCores).toFixed(0) + '%';
         }
         else {
@@ -366,7 +375,7 @@ export default GObject.registerClass(class ProcessorHeader extends Header {
                 if (cpuUsage && cpuUsage.total && !isNaN(cpuUsage.total))
                     total = cpuUsage.total;
                 if (Config.get_boolean('processor-header-tooltip-percentage-core'))
-                    total *= Utils.processorMonitor.getCpuTopology().length;
+                    total *= Utils.processorMonitor.getCpuTopology().length || 1;
                 values.push(Math.round(total) + '%');
             }
             if (values.length === 0)

@@ -4,6 +4,7 @@
     "title",
     "separator",
     "os",
+    "monitor",
     "host",
     "gpu",
     "cpu",

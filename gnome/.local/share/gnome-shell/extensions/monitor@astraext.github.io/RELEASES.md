@@ -1,3 +1,39 @@
+# Astra Monitor 41 - TO BE RELEASED
+
+### Menu behavior
+
+-   Improved menu lifecycle handling for better performance and stability when switching quickly between menus, preventing stale updates and lingering loading states after close.
+-   Improved menu loading states and first-update behavior to reduce stale values, avoid misleading empty rows, and keep popups consistent while data is being refreshed.
+
+### EGO compliance
+
+-   Removed synchronous file reads and command probes from the extension code to comply with the latest requirements from extensions.gnome.org. Most of these operations were already limited to extension startup, but they have now been moved to asynchronous flows.
+
+_Note: This is a significant internal change, so feedback is very welcome. If you notice any regression, please open an issue: [Astra Monitor issues](https://github.com/AstraExt/astra-monitor/issues)._
+
+### Bug fixes
+
+-   Fixed load average values being truncated in the processor menu when wider values are shown.
+-   Fixed NVIDIA `nvidia-smi -q -x` XML comment parsing after the recent parser performance optimization. [[#229](https://github.com/AstraExt/astra-monitor/pull/229)] (Thanks to [@MichaelNeys](https://github.com/MichaelNeys))
+
+### Developers and contributors
+
+-   Added `ego.sh` to build, pack, and validate the extension with `shexli` before uploading to [extensions.gnome.org](https://extensions.gnome.org/upload/).
+
+# Astra Monitor 40 - June 22 2026
+
+### GPU monitoring
+
+-   Fixed a problem that caused some NVIDIA configurations to experience GNOME Shell stuttering every ~10 seconds when GPU monitoring was enabled, including when GPU stats were shown from the processor menu. [[#211](https://github.com/AstraExt/astra-monitor/issues/211)]
+
+_Note: This is an important change to GPU monitoring, so feedback is very welcome. If you notice any regression, please open an issue: [Astra Monitor issues](https://github.com/AstraExt/astra-monitor/issues)._
+
+### Bug fixes
+
+-   Improved memory management and general cleanup across menus, monitors, and background tasks. [[#225](https://github.com/AstraExt/astra-monitor/pull/225)]
+-   Fixed NetHogs capability detection when the binary has additional capabilities configured. [[#218](https://github.com/AstraExt/astra-monitor/pull/218)] (Thanks to [@dantob](https://github.com/dantob))
+-   Fixed NVIDIA `nvidia-smi -q -x` XML parsing when recent drivers include comment nodes in the output. [[#226](https://github.com/AstraExt/astra-monitor/issues/226)] [[#227](https://github.com/AstraExt/astra-monitor/pull/227)] (Thanks to [@MichaelNeys](https://github.com/MichaelNeys))
+
 # Astra Monitor 39 - March 17 2026
 
 ### Bug fixes

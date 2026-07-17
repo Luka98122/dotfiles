@@ -70,6 +70,12 @@ export default GObject.registerClass(class Grid extends St.Widget {
     addGrid(widget, col, row, colSpan, rowSpan) {
         this.lm.attach(widget, col, row, colSpan, rowSpan);
     }
+    clear() {
+        for (const child of this.get_children())
+            child.destroy();
+        this.currentRow = 0;
+        this.currentCol = 0;
+    }
     getNumCols() {
         return this.numCols;
     }

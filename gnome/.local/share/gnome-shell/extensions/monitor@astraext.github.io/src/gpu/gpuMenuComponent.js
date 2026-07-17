@@ -20,6 +20,7 @@
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import Pango from 'gi://Pango';
+import GLib from 'gi://GLib';
 import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import MenuBase from '../menu.js';
 import Utils from '../utils/utils.js';
@@ -31,6 +32,8 @@ export default class GpuMenuComponent {
     constructor(params) {
         this.shown = false;
         this.compact = false;
+        this.destroyed = false;
+        this.displayUpdateTimer = 0;
         this.parent = params.parent;
         if (params.compact)
             this.compact = params.compact;
@@ -51,10 +54,38 @@ export default class GpuMenuComponent {
             });
         }
         this.container = new Grid({ numCols: 2, styleClass: 'astra-monitor-menu-subgrid' });
+        this.loadingIcon = new St.Icon({
+            gicon: Utils.getLocalIcon('am-loading-symbolic'),
+            fallbackIconName: 'dialog-information-symbolic',
+            style: 'icon-size:1.3em;min-height:1.3em;',
+            xExpand: true,
+            xAlign: Clutter.ActorAlign.CENTER,
+            yAlign: Clutter.ActorAlign.CENTER,
+        });
+        this.loadingIcon.set_pivot_point(0.5, 0.5);
+        this.loadingIcon.hide();
+        this.container.addToGrid(this.loadingIcon, 2);
+        const populateGpuSections = (GPUsList) => {
+            if (this.destroyed || !this.container || this.sections.length > 0)
+                return;
+            if (!GPUsList || GPUsList.length === 0) {
+                if (this.noGPULabel)
+                    this.noGPULabel.text = _('No GPU found');
+                return;
+            }
+            this.noGPULabel?.hide();
+            if (GPUsList.length > 1 && this.title)
+                this.title.text = _('GPUs');
+            for (let i = 0; i < GPUsList.length; i++) {
+                const gpu = GPUsList[i];
+                const section = this.createSection(gpu);
+                this.sections.push(section);
+            }
+        };
         const GPUsList = Utils.getGPUsList();
         if (!GPUsList || GPUsList.length === 0) {
             this.noGPULabel = new St.Label({
-                text: _('No GPU found'),
+                text: '',
                 styleClass: 'astra-monitor-menu-label-warning',
                 style: 'font-style:italic;',
             });
@@ -64,14 +95,16 @@ export default class GpuMenuComponent {
                     this.noGPULabel.visible = !gpus || gpus.length === 0;
             });
             this.container.addToGrid(this.noGPULabel, 2);
-            return;
+            Utils.getGPUsListAsync()
+                .then(populateGpuSections)
+                .catch((e) => {
+                Utils.error('Error loading GPU menu', e);
+                if (!this.destroyed && this.noGPULabel)
+                    this.noGPULabel.text = _('No GPU found');
+            });
         }
-        if (GPUsList.length > 1 && this.title)
-            this.title.text = _('GPUs');
-        for (let i = 0; i < GPUsList.length; i++) {
-            const gpu = GPUsList[i];
-            const section = this.createSection(gpu);
-            this.sections.push(section);
+        else {
+            populateGpuSections(GPUsList);
         }
     }
     createSection(gpuInfo) {
@@ -1412,12 +1445,15 @@ export default class GpuMenuComponent {
         return popup;
     }
     update(data) {
+        if (this.destroyed || !this.container)
+            return;
         if (!data)
             return;
         if (!this.shown) {
             this.lastData = data;
             return;
         }
+        this.loadingIcon?.hide();
         for (const section of this.sections) {
             const gpuData = data.get(section.uuid);
             if (!gpuData) {
@@ -1528,7 +1564,11 @@ export default class GpuMenuComponent {
         }
     }
     updateDisplays() {
+        if (this.destroyed || !this.shown || !this.container)
+            return;
         let displaysData = Utils.gpuMonitor.getCurrentValue('displays');
+        if (!Array.isArray(displaysData))
+            return;
         displaysData = displaysData.filter(d => !d.connector.toLowerCase().includes('writeback'));
         if (!displaysData || displaysData.length === 0) {
             return;
@@ -1555,23 +1595,57 @@ export default class GpuMenuComponent {
         }
     }
     onOpen() {
+        if (this.destroyed || !this.container)
+            return;
         this.clear();
         this.shown = true;
-        Utils.gpuMonitor.requestUpdate('displays');
         Utils.gpuMonitor.listen(this, 'displays', this.updateDisplays.bind(this));
-        try {
-            this.update(this.lastData);
+        const gpuData = Utils.gpuMonitor.getCurrentValue('gpu');
+        if (Utils.gpuMonitor.hasFreshValue('gpu', Utils.gpuMonitor.updateFrequencyMs * 3)) {
+            try {
+                this.update(gpuData ?? this.lastData);
+            }
+            catch (e) {
+                Utils.error('Error updating gpu menu', e);
+            }
         }
-        catch (e) {
-            Utils.error('Error updating gpu menu', e);
+        else {
+            if (this.loadingIcon)
+                MenuBase.startLoadingIcon(this.loadingIcon);
         }
+        this.scheduleDisplayUpdate();
+    }
+    scheduleDisplayUpdate() {
+        this.cancelDisplayUpdate();
+        const dueIn = Utils.gpuMonitor.dueIn;
+        const openDelayMs = 100;
+        if (dueIn >= 0 && dueIn - openDelayMs <= Utils.gpuMonitor.updateFrequencyMs / 2)
+            return;
+        this.displayUpdateTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, openDelayMs, () => {
+            this.displayUpdateTimer = 0;
+            if (this.shown)
+                Utils.gpuMonitor.requestUpdate('displays');
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+    cancelDisplayUpdate() {
+        if (this.displayUpdateTimer === 0)
+            return;
+        GLib.source_remove(this.displayUpdateTimer);
+        this.displayUpdateTimer = 0;
     }
     onClose() {
         this.shown = false;
+        this.cancelDisplayUpdate();
+        this.clear();
         Utils.gpuMonitor.unlisten(this, 'displays');
     }
-    clear() { }
+    clear() {
+        if (this.loadingIcon)
+            MenuBase.stopLoadingIcon(this.loadingIcon);
+    }
     destroy() {
+        this.destroyed = true;
         this.onClose();
         Config.clear(this);
         if (this.title)
@@ -1613,7 +1687,6 @@ export default class GpuMenuComponent {
         }
         this.topProcesses = undefined;
         this.mainSensors = undefined;
-        this.container?.remove_all_children();
         this.container?.destroy();
         this.container = undefined;
     }

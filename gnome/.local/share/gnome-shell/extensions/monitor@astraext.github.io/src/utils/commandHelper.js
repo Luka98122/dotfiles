@@ -5,6 +5,7 @@ export default class CommandHelper {
         let proc = null;
         let stdoutStream = null;
         let stderrStream = null;
+        const cancellable = cancellableTaskManager?.cancellable || null;
         try {
             const [ok, argv] = GLib.shell_parse_argv(command);
             if (!ok || !argv || argv.length === 0) {
@@ -13,7 +14,7 @@ export default class CommandHelper {
             const flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE;
             proc = new Gio.Subprocess({ argv, flags });
             try {
-                const init = proc.init(cancellableTaskManager?.cancellable || null);
+                const init = proc.init(cancellable);
                 if (!init) {
                     throw new Error('Failed to initialize CommandHelper');
                 }
@@ -24,16 +25,19 @@ export default class CommandHelper {
             cancellableTaskManager?.setSubprocess(proc);
             stdoutStream = proc.get_stdout_pipe();
             stderrStream = proc.get_stderr_pipe();
-            const stdoutPromise = CommandHelper.readAll(stdoutStream, cancellableTaskManager);
-            const stderrPromise = CommandHelper.readAll(stderrStream, cancellableTaskManager);
+            const stdoutPromise = CommandHelper.readAll(stdoutStream, cancellable);
+            const stderrPromise = CommandHelper.readAll(stderrStream, cancellable);
             const waitPromise = new Promise((resolve, reject) => {
-                proc.wait_async(cancellableTaskManager?.cancellable || null, (_source, res) => {
+                proc.wait_async(cancellable, (_source, res) => {
                     try {
                         if (!proc.wait_finish(res)) {
                             reject(new Error('Wait failed'));
                         }
-                        else {
+                        else if (proc.get_if_exited()) {
                             resolve(proc.get_exit_status());
+                        }
+                        else {
+                            reject(new Error('Command terminated before exiting normally'));
                         }
                     }
                     catch (e) {
@@ -70,7 +74,7 @@ export default class CommandHelper {
             }
         }
     }
-    static async readAll(stream, cancellableTaskManager) {
+    static async readAll(stream, cancellable) {
         if (!stream)
             return '';
         const chunks = [];
@@ -79,7 +83,7 @@ export default class CommandHelper {
         let bytes = null;
         do {
             bytes = await new Promise((resolve, reject) => {
-                stream.read_bytes_async(bufferSize, GLib.PRIORITY_LOW, cancellableTaskManager?.cancellable || null, (_stream, asyncResult) => {
+                stream.read_bytes_async(bufferSize, GLib.PRIORITY_LOW, cancellable, (_stream, asyncResult) => {
                     try {
                         const result = stream.read_bytes_finish(asyncResult);
                         resolve(result);

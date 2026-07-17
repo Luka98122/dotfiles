@@ -67,6 +67,7 @@ export default GObject.registerClass(class BarsBase extends St.BoxLayout {
             yAlign: params.yAlign,
             yExpand: true,
         });
+        this.cleanedUp = false;
         this.layout = params.layout;
         this.header = params.header;
         this.mini = params.mini;
@@ -123,6 +124,7 @@ export default GObject.registerClass(class BarsBase extends St.BoxLayout {
         const themeContext = St.ThemeContext.get_for_stage(global.get_stage());
         if (themeContext.get_scale_factor) {
             this.scaleFactor = themeContext.get_scale_factor();
+            this.themeContext = themeContext;
             this.themeContextConnectId = themeContext.connect('notify::scale-factor', obj => {
                 this.scaleFactor = obj.get_scale_factor();
             });
@@ -130,6 +132,7 @@ export default GObject.registerClass(class BarsBase extends St.BoxLayout {
         else {
             this.scaleFactor = 1;
         }
+        this.connect('destroy', this.cleanup.bind(this));
     }
     setStyle() {
         let styleClass;
@@ -267,20 +270,21 @@ export default GObject.registerClass(class BarsBase extends St.BoxLayout {
             size *= 0.75;
         return size;
     }
-    destroy() {
+    cleanup() {
+        if (this.cleanedUp)
+            return;
+        this.cleanedUp = true;
         Config.clear(this);
-        if (this.themeContextConnectId) {
-            const themeContext = St.ThemeContext.get_for_stage(global.get_stage());
-            themeContext.disconnect(this.themeContextConnectId);
+        if (this.themeContext && this.themeContextConnectId) {
+            this.themeContext.disconnect(this.themeContextConnectId);
+            this.themeContext = undefined;
             this.themeContextConnectId = undefined;
         }
-        for (let i = 0; i < this.bars.length; i++) {
-            for (let j = 0; j < this.bars[i].length; j++) {
-                this.bars[i][j].destroy();
-            }
-        }
-        this.bars.length = 0;
-        this.remove_all_children();
+        if (this.bars)
+            this.bars.length = 0;
+    }
+    destroy() {
+        this.cleanup();
         super.destroy();
     }
 });

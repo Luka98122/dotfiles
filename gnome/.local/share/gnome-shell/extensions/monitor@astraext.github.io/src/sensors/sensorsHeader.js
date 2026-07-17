@@ -26,6 +26,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import Header from '../header.js';
 import Config from '../config.js';
+import Signal from '../signal.js';
 import Utils from '../utils/utils.js';
 import Grid from '../grid.js';
 import SensorsMenu from './sensorsMenu.js';
@@ -43,7 +44,7 @@ export default GObject.registerClass(class SensorsHeader extends Header {
         this.setMenu(menu);
         this.resetMaxWidths();
         Config.connect(this, 'changed::sensors-indicators-order', this.addOrReorderIndicators.bind(this));
-        Config.connect(this, 'changed::visible', this.resetMaxWidths.bind(this));
+        Signal.connect(this, 'notify::visible', this.resetMaxWidths.bind(this));
         Config.connect(this, 'changed::sensors-header-sensor1-show', this.resetMaxWidths.bind(this));
         Config.connect(this, 'changed::sensors-header-sensor2-show', this.resetMaxWidths.bind(this));
         Config.connect(this, 'changed::headers-font-family', this.resetMaxWidths.bind(this));
@@ -374,6 +375,7 @@ export default GObject.registerClass(class SensorsHeader extends Header {
         this.tooltipMenu.close(false);
     }
     destroy() {
+        Signal.disconnect(this, 'notify::visible');
         Config.clear(this);
         Utils.sensorsMonitor.unlisten(this);
         if (this.icon) {

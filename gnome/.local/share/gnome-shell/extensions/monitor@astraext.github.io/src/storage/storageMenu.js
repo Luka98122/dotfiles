@@ -34,6 +34,8 @@ export default class StorageMenu extends MenuBase {
         super(sourceActor, arrowAlignment, { name: 'Storage Menu', arrowSide });
         this.privilegedTopProcesses = false;
         this.updateTimer = 0;
+        this.deviceListGeneration = 0;
+        this.destroyed = false;
         Utils.verbose('Initializing storage menu');
         this.addMenuSection(_('Storage'));
         this.createActivitySection();
@@ -74,7 +76,7 @@ export default class StorageMenu extends MenuBase {
             text: '-',
             xExpand: true,
         });
-        grid.addToGrid(this.totalReadSpeedValueLabel);
+        grid.addToGrid(MenuBase.createLoadingValue(this.totalReadSpeedValueLabel));
         const totalWriteSpeedLabel = new St.Label({
             text: _('Global Write:'),
             xExpand: true,
@@ -85,7 +87,7 @@ export default class StorageMenu extends MenuBase {
             text: '-',
             xExpand: true,
         });
-        grid.addToGrid(this.totalWriteSpeedValueLabel);
+        grid.addToGrid(MenuBase.createLoadingValue(this.totalWriteSpeedValueLabel));
         this.createActivityPopup(hoverButton);
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
@@ -138,7 +140,9 @@ export default class StorageMenu extends MenuBase {
         separatorButton.set_child(separatorGrid);
         separatorButton.connect('clicked', () => {
             if (Utils.hasIotop()) {
-                Utils.storageMonitor.startIOTop();
+                Utils.storageMonitor.startIOTop().catch((e) => {
+                    Utils.error('Error starting IOTop', e);
+                });
             }
         });
         this.addToMenu(separatorButton, 2);
@@ -159,7 +163,7 @@ export default class StorageMenu extends MenuBase {
                 style: 'max-width:85px;',
                 xExpand: true,
             });
-            grid.addToGrid(label);
+            grid.addToGrid(MenuBase.createLoadingValue(label));
             const readContainer = new St.Widget({
                 layoutManager: new Clutter.GridLayout({
                     orientation: Clutter.Orientation.HORIZONTAL,
@@ -332,7 +336,12 @@ export default class StorageMenu extends MenuBase {
         }
     }
     async updateDeviceList() {
+        if (this.destroyed || !this.isOpen)
+            return;
+        const generation = ++this.deviceListGeneration;
         const devices = await Utils.getBlockDevicesAsync();
+        if (this.destroyed || !this.isOpen || generation !== this.deviceListGeneration)
+            return;
         if (devices.size > 0)
             this.noDevicesLabel.hide();
         else
@@ -362,15 +371,14 @@ export default class StorageMenu extends MenuBase {
         }
         for (const [id, device] of this.devices.entries()) {
             if (!devices.has(id)) {
-                this.deviceSection.remove_child(device.container);
-                this.devices.delete(id);
-                device.bar?.destroy();
                 this.devicesInfoPopup.get(id)?.close(true);
                 this.devicesInfoPopup.get(id)?.destroy();
                 this.devicesInfoPopup.delete(id);
                 this.devicesTotalsPopup.get(id)?.close(true);
                 this.devicesTotalsPopup.get(id)?.destroy();
                 this.devicesTotalsPopup.delete(id);
+                device.container.destroy();
+                this.devices.delete(id);
             }
         }
         const idList = Array.from(devices.keys());
@@ -842,21 +850,24 @@ export default class StorageMenu extends MenuBase {
         });
     }
     async onOpen() {
-        this.update('storageIO', true);
+        this.updateFreshOrShowLoading(Utils.storageMonitor, 'storageIO', 'storageIO', this.showStorageIOLoading.bind(this));
         Utils.storageMonitor.listen(this, 'storageIO', this.update.bind(this, 'storageIO', false));
-        this.update('detailedStorageIO', true);
-        Utils.storageMonitor.listen(this, 'detailedStorageIO', this.update.bind(this, 'detailedStorageIO', false));
-        Utils.storageMonitor.requestUpdate('detailedStorageIO');
+        this.updateFreshOrShowLoading(Utils.storageMonitor, 'detailedStorageIO', 'detailedStorageIO', this.clear.bind(this, 'devices'));
+        Utils.storageMonitor.listen(this, 'detailedStorageIO', this.bindOpenUpdate('detailedStorageIO', this.update.bind(this, 'detailedStorageIO', false)));
+        this.scheduleTwoSampleOpenUpdate('detailedStorageIO', Utils.storageMonitor, () => {
+            Utils.storageMonitor.requestUpdate('detailedStorageIO');
+        });
         if (Utils.GTop) {
             this.topProcesses.separator.show();
             this.topProcesses.hoverButton.show();
             if (Utils.hasIotop()) {
                 this.topProcesses.subSeparator.show();
             }
-            this.clear('topProcesses');
-            this.update('topProcesses', true);
-            Utils.storageMonitor.listen(this, 'topProcesses', this.update.bind(this, 'topProcesses', false));
-            Utils.storageMonitor.requestUpdate('topProcesses');
+            this.updateFreshOrShowLoading(Utils.storageMonitor, 'topProcesses', 'topProcesses', this.clear.bind(this, 'topProcesses'));
+            Utils.storageMonitor.listen(this, 'topProcesses', this.bindOpenUpdate('topProcesses', this.update.bind(this, 'topProcesses', false)));
+            this.scheduleTwoSampleOpenUpdate('topProcesses', Utils.storageMonitor, () => {
+                Utils.storageMonitor.requestUpdate('topProcesses');
+            });
             Utils.storageMonitor.listen(this, 'topProcessesIOTop', this.update.bind(this, 'topProcessesIOTop', false));
             Utils.storageMonitor.listen(this, 'topProcessesIOTopStop', this.update.bind(this, 'topProcessesIOTopStop', false));
         }
@@ -864,38 +875,48 @@ export default class StorageMenu extends MenuBase {
         if (!this.updateTimer) {
             this.updateTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, Utils.storageMonitor.updateFrequency * 1000 * 2, () => {
                 this.update('deviceList', true);
-                Utils.storageMonitor.requestUpdate('storageInfo');
+                this.scheduleOpenUpdate('storageInfo', Utils.storageMonitor, () => {
+                    Utils.storageMonitor.requestUpdate('storageInfo');
+                });
                 return true;
             });
         }
-        this.update('storageInfo', true);
+        if (this.canUseCachedValue(Utils.storageMonitor, 'storageInfo'))
+            this.update('storageInfo', true);
         Utils.storageMonitor.listen(this, 'storageInfo', this.update.bind(this, 'storageInfo', false));
-        Utils.storageMonitor.requestUpdate('storageInfo');
+        this.scheduleOpenUpdate('storageInfo', Utils.storageMonitor, () => {
+            Utils.storageMonitor.requestUpdate('storageInfo');
+        });
     }
     onClose() {
+        super.onClose();
+        this.deviceListGeneration++;
+        this.stopPrivilegedTopProcesses();
         Utils.storageMonitor.unlisten(this, 'storageIO');
         Utils.storageMonitor.unlisten(this, 'detailedStorageIO');
         Utils.storageMonitor.unlisten(this, 'topProcesses');
         Utils.storageMonitor.unlisten(this, 'topProcessesIOTop');
+        Utils.storageMonitor.unlisten(this, 'topProcessesIOTopStop');
         Utils.storageMonitor.unlisten(this, 'storageInfo');
         if (this.updateTimer) {
             GLib.source_remove(this.updateTimer);
             this.updateTimer = 0;
         }
     }
-    needsUpdate(code, forced = false) {
-        if (forced) {
-            const valueTime = Utils.storageMonitor.getCurrentValueTime(code);
-            return !(valueTime && Date.now() - valueTime > Utils.storageMonitor.updateFrequency);
-        }
-        return super.needsUpdate(code, forced);
+    showStorageIOLoading() {
+        this.graph.setUsageHistory([]);
+        this.setLoading(this.totalReadSpeedValueLabel, true);
+        this.setLoading(this.totalWriteSpeedValueLabel, true);
     }
     update(code, forced = false) {
         if (!this.needsUpdate(code, forced)) {
             return;
         }
         if (code === 'deviceList') {
+            const generation = ++this.deviceListGeneration;
             Utils.lowPriorityTask(() => {
+                if (this.destroyed || !this.isOpen || generation !== this.deviceListGeneration)
+                    return;
                 this.updateDeviceList();
             }, GLib.PRIORITY_DEFAULT);
             return;
@@ -905,6 +926,8 @@ export default class StorageMenu extends MenuBase {
             this.graph.setUsageHistory(usage);
             const current = Utils.storageMonitor.getCurrentValue('storageIO');
             if (current) {
+                this.setLoading(this.totalReadSpeedValueLabel, false);
+                this.setLoading(this.totalWriteSpeedValueLabel, false);
                 const unit = Config.get_string('storage-io-unit');
                 if (current.bytesReadPerSec)
                     this.totalReadSpeedValueLabel.text = Utils.formatBytesPerSec(current.bytesReadPerSec, unit, 3);
@@ -930,8 +953,7 @@ export default class StorageMenu extends MenuBase {
                 }
             }
             else {
-                this.totalReadSpeedValueLabel.text = '-';
-                this.totalWriteSpeedValueLabel.text = '-';
+                this.showStorageIOLoading();
                 if (this.storageActivityPopup) {
                     if (this.storageActivityPopup.totalReadValueLabel)
                         this.storageActivityPopup.totalReadValueLabel.text = '-';
@@ -1021,23 +1043,25 @@ export default class StorageMenu extends MenuBase {
                     return;
                 topProcesses = Utils.storageMonitor.getCurrentValue('topProcesses');
             }
+            const loading = !topProcesses || !Array.isArray(topProcesses) || this.isOpenUpdatePending(code);
             for (let i = 0; i < StorageMonitor.TOP_PROCESSES_LIMIT; i++) {
-                if (!topProcesses ||
-                    !Array.isArray(topProcesses) ||
-                    !topProcesses[i] ||
-                    !topProcesses[i].process) {
+                if (loading || !topProcesses[i] || !topProcesses[i].process) {
                     if (i < 3) {
-                        this.topProcesses.labels[i].label.text = '-';
-                        this.topProcesses.labels[i].read.value.text = '-';
+                        this.setLoading(this.topProcesses.labels[i].label, loading);
+                        this.topProcesses.labels[i].label.text = loading ? '' : '-';
+                        this.topProcesses.labels[i].read.value.text = '';
                         this.topProcesses.labels[i].read.icon.style =
                             'color:rgba(255,255,255,0.5);';
-                        this.topProcesses.labels[i].write.value.text = '-';
+                        this.topProcesses.labels[i].write.value.text = '';
                         this.topProcesses.labels[i].write.icon.style =
                             'color:rgba(255,255,255,0.5);';
                     }
                     if (this.topProcessesPopup && this.topProcessesPopup.processes) {
                         const popupElement = this.topProcessesPopup.processes.get(i);
                         if (popupElement) {
+                            popupElement.label.text = '';
+                            popupElement.read.value.text = '';
+                            popupElement.write.value.text = '';
                             popupElement.label.hide();
                             popupElement.description?.hide();
                             popupElement.read.container.hide();
@@ -1052,6 +1076,7 @@ export default class StorageMenu extends MenuBase {
                     const read = topProcess.read;
                     const write = topProcess.write;
                     if (i < 3) {
+                        this.setLoading(this.topProcesses.labels[i].label, false);
                         this.topProcesses.labels[i].label.text = process.exec;
                         if (read > 0) {
                             const readColor = Config.get_string('storage-menu-arrow-color1') ??
@@ -1115,6 +1140,8 @@ export default class StorageMenu extends MenuBase {
         }
         if (code === 'storageInfo') {
             const storageInfo = Utils.storageMonitor.getCurrentValue('storageInfo');
+            if (!(storageInfo instanceof Map))
+                return;
             const formatValue = (value, isBytes = false) => {
                 if (Array.isArray(value))
                     return value.join('\n');
@@ -1196,23 +1223,39 @@ export default class StorageMenu extends MenuBase {
         }
         if (code === 'all' || code === 'devices') {
             for (const [_id, device] of this.devices.entries()) {
-                device.readValueLabel.text = '-';
+                device.readValueLabel.text = '';
                 device.readActivityIcon.style = 'color:rgba(255,255,255,0.5);';
-                device.writeValueLabel.text = '-';
+                device.writeValueLabel.text = '';
                 device.writeActivityIcon.style = 'color:rgba(255,255,255,0.5);';
             }
         }
         if (code === 'all' || code === 'topProcesses') {
             for (const process of this.topProcesses.labels) {
-                process.label.text = '-';
-                process.read.value.text = '-';
+                this.setLoading(process.label, true);
+                process.label.text = '';
+                process.read.value.text = '';
                 process.read.icon.style = 'color:rgba(255,255,255,0.5);';
-                process.write.value.text = '-';
+                process.write.value.text = '';
                 process.write.icon.style = 'color:rgba(255,255,255,0.5);';
+            }
+            for (let i = 0; i < StorageMonitor.TOP_PROCESSES_LIMIT; i++) {
+                const popupElement = this.topProcessesPopup?.processes?.get(i);
+                if (!popupElement)
+                    continue;
+                popupElement.label.text = '';
+                popupElement.read.value.text = '';
+                popupElement.write.value.text = '';
+                popupElement.label.hide();
+                popupElement.description?.hide();
+                popupElement.read.container.hide();
+                popupElement.write.container.hide();
             }
         }
     }
     destroy() {
+        this.destroyed = true;
+        this.stopPrivilegedTopProcesses();
+        Utils.storageMonitor.unlisten(this, 'topProcessesIOTopStop');
         Config.clear(this);
         this.storageActivityPopup?.destroy();
         this.storageActivityPopup = undefined;
@@ -1230,7 +1273,6 @@ export default class StorageMenu extends MenuBase {
             this.devicesTotalsPopup.get(id)?.destroy();
             this.devicesTotalsPopup.delete(id);
         }
-        this.deviceSection.remove_all_children();
         this.deviceSection?.destroy();
         this.deviceSection = undefined;
         super.destroy();

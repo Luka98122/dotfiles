@@ -139,11 +139,15 @@ export default class Sensors {
             tabs: 1,
         }, 'sensors-header-icon-size', iconSection, { min: 8, max: 30, digits: 0, step: 1, page: 1 }, true, 18);
         const generateSensorSources = async () => {
-            await Utils.getCachedHwmonDevicesAsync();
-            const sources = Utils.getSensorSources();
             const choicesSource = [{ value: '', text: _('None') }];
-            for (const source of sources)
-                choicesSource.push({ value: source.value, text: source.text });
+            try {
+                const sources = await Utils.getSensorSourcesAsync();
+                for (const source of sources)
+                    choicesSource.push({ value: source.value, text: source.text });
+            }
+            catch (e) {
+                Utils.error('Error generating sensor sources', e);
+            }
             return choicesSource;
         };
         const sensor1Section = PrefsUtils.addExpanderRow({ title: _('Sensor 1') }, group, 'sensors');

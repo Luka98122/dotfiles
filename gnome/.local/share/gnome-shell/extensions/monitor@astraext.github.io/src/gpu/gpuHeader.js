@@ -532,7 +532,7 @@ export default GObject.registerClass(class GpuHeader extends Header {
         }
         if (this.tooltipItem) {
             Config.clear(this.tooltipItem);
-            Utils.gpuMonitor.unlisten(this.tooltipMenu);
+            Utils.gpuMonitor.unlisten(this.tooltipItem);
             this.tooltipItem.destroy();
             this.tooltipItem = undefined;
         }

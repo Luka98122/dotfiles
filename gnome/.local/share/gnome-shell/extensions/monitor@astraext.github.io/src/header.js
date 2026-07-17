@@ -178,15 +178,11 @@ export default GObject.registerClass(class Header extends St.Widget {
     onOpenMenu(_menu, open) {
         if (open) {
             this.add_style_pseudo_class('active');
-            Utils.lowPriorityTask(() => {
-                this.menu?.onOpen();
-            });
+            this.menu?.queueOpenLifecycle();
         }
         else {
             this.remove_style_pseudo_class('active');
-            Utils.lowPriorityTask(() => {
-                this.menu?.onClose();
-            });
+            this.menu?.queueCloseLifecycle();
         }
         return;
     }

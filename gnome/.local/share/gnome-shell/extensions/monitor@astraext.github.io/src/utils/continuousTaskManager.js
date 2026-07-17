@@ -28,18 +28,19 @@ export default class ContinuousTaskManager {
     }
     start(command, options) {
         this.stop();
-        this.currentTask = new CancellableTaskManager();
+        const task = new CancellableTaskManager();
+        this.currentTask = task;
         this.command = command;
         this.options = options;
         this.output = '';
         this.exited = false;
-        this.currentTask
-            .run(this.task.bind(this))
+        task.run(this.task.bind(this))
             .catch(() => {
-            this.exit();
+            this.exit(task);
         })
             .finally(() => {
-            this.stop();
+            if (this.currentTask === task)
+                this.stop();
         });
         if (this.options?.flush?.interval) {
             this.startTimer();
@@ -52,7 +53,9 @@ export default class ContinuousTaskManager {
             callback(data);
         });
     }
-    exit() {
+    exit(generation) {
+        if (this.currentTask !== undefined && this.currentTask !== generation)
+            return;
         if (this.exited)
             return;
         this.exited = true;
@@ -60,6 +63,8 @@ export default class ContinuousTaskManager {
         this.callback({ exit: true });
     }
     task() {
+        const generation = this.currentTask;
+        const cancellable = generation?.cancellable || null;
         return new Promise((resolve, reject) => {
             if (!this.command) {
                 reject('No command or script provided');
@@ -95,7 +100,7 @@ export default class ContinuousTaskManager {
                 return;
             }
             try {
-                const init = proc.init(this.currentTask?.cancellable || null);
+                const init = proc.init(cancellable);
                 if (!init) {
                     reject('Failed to initialize subprocess');
                     return;
@@ -105,7 +110,7 @@ export default class ContinuousTaskManager {
                 reject(`Failed to initialize subprocess: ${e.message}`);
                 return;
             }
-            this.currentTask?.setSubprocess(proc);
+            generation?.setSubprocess(proc);
             const pipeOut = proc.get_stdout_pipe();
             if (!pipeOut) {
                 reject('Failed to get stdout pipe');
@@ -117,23 +122,23 @@ export default class ContinuousTaskManager {
                     baseStream: pipeErr,
                     closeBaseStream: true,
                 });
-                this.drainStream(stderrStream);
+                this.drainStream(cancellable, stderrStream);
             }
             const stdoutStream = new Gio.DataInputStream({
                 baseStream: pipeOut,
                 closeBaseStream: true,
             });
-            this.readOutput(resolve, reject, stdoutStream);
+            this.readOutput(generation, cancellable, resolve, reject, stdoutStream);
         });
     }
-    drainStream(stream) {
-        stream.read_line_async(GLib.PRIORITY_LOW, this.currentTask?.cancellable || null, (s, result) => {
+    drainStream(cancellable, stream) {
+        stream.read_line_async(GLib.PRIORITY_LOW, cancellable, (s, result) => {
             try {
                 if (s === null)
                     throw new Error('Stream invalid');
                 const [line] = s.read_line_finish_utf8(result);
                 if (line !== null) {
-                    this.drainStream(stream);
+                    this.drainStream(cancellable, stream);
                     return;
                 }
             }
@@ -146,8 +151,8 @@ export default class ContinuousTaskManager {
             }
         });
     }
-    readOutput(resolve, reject, stdout) {
-        stdout.read_line_async(GLib.PRIORITY_LOW, this.currentTask?.cancellable || null, (stream, result) => {
+    readOutput(generation, cancellable, resolve, reject, stdout) {
+        stdout.read_line_async(GLib.PRIORITY_LOW, cancellable, (stream, result) => {
             try {
                 if (stream === null) {
                     throw new Error('Stream invalid');
@@ -184,10 +189,10 @@ export default class ContinuousTaskManager {
                         this.callback({ result: this.output, exit: false });
                         this.output = '';
                     }
-                    this.readOutput(resolve, reject, stdout);
+                    this.readOutput(generation, cancellable, resolve, reject, stdout);
                 }
                 else {
-                    this.exit();
+                    this.exit(generation);
                     try {
                         stdout.close(null);
                     }
@@ -197,7 +202,7 @@ export default class ContinuousTaskManager {
                 }
             }
             catch (e) {
-                this.exit();
+                this.exit(generation);
                 try {
                     stdout.close(null);
                 }
@@ -246,6 +251,7 @@ export default class ContinuousTaskManager {
         this.stopTimer();
         this.currentTask?.cancel();
         this.currentTask = undefined;
+        this.output = '';
     }
     get isRunning() {
         return this.currentTask?.isRunning || false;
