@@ -71,6 +71,11 @@ export const LiveWallpaper = GObject.registerClass(
             backgroundActor.add_child(this);
 
             this._wallpaper = null;
+            this._rendererActor = null;
+            this._rendererDestroyId = 0;
+            this._applyWallpaperId = 0;
+            this._isDestroyed = false;
+            this.connect('destroy', () => this._onDestroy());
             this._applyWallpaper();
 
             this._roundedCornersEffect =
@@ -115,8 +120,22 @@ export const LiveWallpaper = GObject.registerClass(
         }
 
         _applyWallpaper() {
+            if (this._isDestroyed)
+                return;
+
+            // Never leave a second poll running alongside this one.
+            if (this._applyWallpaperId) {
+                GLib.source_remove(this._applyWallpaperId);
+                this._applyWallpaperId = 0;
+            }
+
             logger.debug('Applying wallpaper...');
             const operation = () => {
+                if (this._isDestroyed) {
+                    this._applyWallpaperId = 0;
+                    return false;
+                }
+
                 const renderer = this._getRenderer();
                 if (renderer) {
                     this._wallpaper = new Clutter.Clone({
@@ -128,9 +147,24 @@ export const LiveWallpaper = GObject.registerClass(
                         this._wallpaper = null;
                     });
                     this.add_child(this._wallpaper);
+
+                    /**
+                     * The renderer is a separate process that can go away at any time —
+                     * it is restarted on wallpaper change, on crash, and from the
+                     * "Restart" menu item. A Clutter.Clone whose source is destroyed
+                     * just renders nothing (it does not emit 'destroy' itself), which
+                     * would leave the plain desktop background behind forever. Watch the
+                     * source actor instead and re-clone once the new renderer window is up.
+                     */
+                    this._rendererActor = renderer;
+                    this._rendererDestroyId = renderer.connect('destroy', () => {
+                        this._onRendererDestroyed();
+                    });
+
                     this._fade();
                     logger.debug('Wallpaper applied');
                     // Stop the timeout.
+                    this._applyWallpaperId = 0;
                     return false;
                 } else {
                     // Keep waiting.
@@ -139,8 +173,50 @@ export const LiveWallpaper = GObject.registerClass(
             };
 
             // Perform intial operation without timeout
-            if (operation())
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, operation);
+            if (operation()) {
+                this._applyWallpaperId = GLib.timeout_add(
+                    GLib.PRIORITY_DEFAULT,
+                    1000,
+                    operation
+                );
+            }
+        }
+
+        _disconnectRenderer() {
+            if (this._rendererDestroyId && this._rendererActor) {
+                this._rendererActor.disconnect(this._rendererDestroyId);
+                this._rendererActor = null;
+                this._rendererDestroyId = 0;
+            }
+        }
+
+        _onRendererDestroyed() {
+            logger.debug('Renderer actor destroyed, waiting for a new one...');
+            // The signal fires from the actor being disposed, so drop the handler
+            // without touching it again.
+            this._rendererActor = null;
+            this._rendererDestroyId = 0;
+
+            if (this._isDestroyed)
+                return;
+
+            if (this._wallpaper) {
+                this._wallpaper.destroy();
+                this._wallpaper = null;
+            }
+
+            // Hidden while there is nothing to show, so the new clone fades back in.
+            this.opacity = 0;
+            this._applyWallpaper();
+        }
+
+        _onDestroy() {
+            this._isDestroyed = true;
+            if (this._applyWallpaperId) {
+                GLib.source_remove(this._applyWallpaperId);
+                this._applyWallpaperId = 0;
+            }
+            this._disconnectRenderer();
         }
 
         _getRenderer() {

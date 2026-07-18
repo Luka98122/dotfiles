@@ -19,6 +19,7 @@
 
 imports.gi.versions.Gtk = '4.0';
 const {GObject, Gtk, Gio, GLib, Gdk, Gst} = imports.gi;
+const System = imports.system;
 
 // [major, minor, micro, nano]
 const gstVersion = Gst.version();
@@ -599,8 +600,32 @@ const HanabiRenderer = GObject.registerClass(
             }
             if (currentUri && currentUri === newUri)
                 return;
-            console.debug(`setFilePath: restarting renderer to change wallpaper`);
+
+            /**
+             * The VRAM leak this restart works around is specific to the GstPlay +
+             * glsinkbin pipeline, which retains decoded GL textures across set_uri().
+             * The GtkMediaFile fallback has no such pipeline, so switch in place there
+             * (upstream behaviour) instead of paying for a full process restart.
+             */
+            if (this._media) {
+                // Reset the stream when switching the file,
+                // otherwise `play()` is not playing for some reason.
+                this._media.stream_unprepared();
+                this._media.file = file;
+                this.setPlay();
+                return;
+            }
+
+            console.debug('setFilePath: restarting renderer to change wallpaper');
+            /**
+             * `quit()` alone tears the application down (releasing the D-Bus name) but
+             * does not reliably terminate the process while the toplevel windows are
+             * still alive. The extension only relaunches the renderer when the process
+             * actually exits, so a half-dead renderer would leave a frozen wallpaper
+             * that the shell still believes is playing. Exit for real.
+             */
             this.quit();
+            System.exit(0);
         }
 
         setPlay() {

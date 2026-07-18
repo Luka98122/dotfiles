@@ -121,6 +121,16 @@ export class HanabiPanelMenu {
                 nextWallpaperMenuItem.hide();
         });
 
+        // Restart
+        menu.addAction(_('Restart'), () => {
+            // The renderer is about to be replaced, so the stale playing state
+            // (and its label) no longer reflects anything. A fresh renderer
+            // always starts out playing.
+            this._isPlaying = true;
+            playPause.label.set_text(_('Pause'));
+            this._extension.restartRenderer();
+        });
+
         // Preferences
         menu.addAction(_('Preferences'), () => {
             this._extension.openPreferences();

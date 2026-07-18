@@ -180,6 +180,50 @@ export default class HanabiExtension extends Extension {
         });
     }
 
+    /**
+     * Restart the renderer, recovering from a renderer that is wedged or has
+     * already lost its D-Bus name (in which case the shell still thinks it is
+     * playing). `killAllProcesses()` is the fallback for a renderer we are no
+     * longer tracking, and it also reaps any orphan left behind by a previous
+     * half-shutdown.
+     */
+    restartRenderer() {
+        if (!this.isEnabled)
+            return;
+
+        if (this.launchRendererId) {
+            GLib.source_remove(this.launchRendererId);
+            this.launchRendererId = 0;
+        }
+
+        const tracked = this.currentProcess;
+        this.currentProcess = null;
+        this.manager.set_wayland_client(null);
+
+        if (tracked && tracked.subprocess) {
+            tracked.cancellable.cancel();
+            tracked.subprocess.send_signal(15);
+        }
+
+        // Reap the tracked process (already signalled above) and any orphans.
+        this.killAllProcesses();
+
+        // The playback state machine outlives the renderer, so reset it to
+        // 'playing' to match the freshly launched process.
+        this.playbackState.reset();
+
+        this.reloadTime = 100;
+        this.launchRendererId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            this.reloadTime,
+            () => {
+                this.launchRendererId = 0;
+                this.launchRenderer();
+                return false;
+            }
+        );
+    }
+
     disable() {
         this.settings = null;
         this.panelMenu.disable();
