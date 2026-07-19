@@ -130,3 +130,6 @@ if command -v eza >/dev/null 2>&1; then
   alias lt='eza -lA --icons --git --group-directories-first --header --color-scale=all --tree --level=3 --ignore-glob=".git|.venv|.cache|__pycache__|node_modules"'
 fi
 export PATH="$HOME/.local/bin:$PATH"
+alias performance="~/dotfiles/scripts/performance.sh"
+alias battery="~/dotfiles/scripts/battery-saver.sh"
+
