@@ -109,7 +109,7 @@ let changeWallpaperMode = extSettings ? extSettings.get_int('change-wallpaper-mo
 let changeWallpaperInterval = extSettings ? extSettings.get_int('change-wallpaper-interval') : 15;
 let windowDimension = {width: 1920, height: 1080};
 let windowed = false;
-let fullscreened = true;
+let fullscreened = false;
 let isDebugMode = extSettings ? extSettings.get_boolean('debug-mode') : true;
 let changeWallpaperTimerId = null;
 
@@ -366,6 +366,16 @@ const HanabiRenderer = GObject.registerClass(
 
                 this._hanabiWindows.push(window);
             });
+
+            // Kick off playback on the first window's map, once the surface
+            // exists, so the GL/DMABUF sink is available when the pipeline is
+            // built (see _enableMediaGL).
+            if (this._mediaPendingPlay && this._hanabiWindows.length > 0) {
+                this._mediaPendingPlay = false;
+                this._hanabiWindows[0].connect('map', () => {
+                    this._enableMediaGL();
+                });
+            }
             console.log(`using ${this._gstImplName} for video output`);
         }
 
@@ -511,10 +521,46 @@ const HanabiRenderer = GObject.registerClass(
             this._sharedPaintable = this._media;
             let widget = this._getWidgetFromSharedPaintable();
 
-            this.setPlay();
+            // Defer playback until the window is mapped. On GTK 4.14 nothing
+            // calls gtk_media_stream_realize(), so if we play immediately the
+            // GStreamer pipeline is built without a GL context and falls back
+            // to CPU conversion of every frame (very choppy for 4K60).
+            this._mediaPendingPlay = true;
             this.setAutoWallpaper();
 
             return widget;
+        }
+
+        /**
+         * The media stream must be realized with a real GdkSurface before the
+         * pipeline is built, otherwise the sink negotiates plain BGRA caps and
+         * every 4K frame is converted on the CPU (downloaded from NVDEC,
+         * converted, and re-uploaded), dropping the frame rate well below the
+         * video's 60 fps. Realize the stream with the window surface and then
+         * re-open the file so the player rebuilds its pipeline with the
+         * GL/DMABUF sink.
+         */
+        _enableMediaGL() {
+            if (!this._media)
+                return;
+
+            const window = this._hanabiWindows[0];
+            const surface = window ? window.get_surface() : null;
+            if (!surface) {
+                this.setPlay();
+                return;
+            }
+
+            try {
+                this._media.realize(surface);
+                const file = this._media.file;
+                if (file)
+                    this._media.file = file;
+                console.log('GtkMediaFile: GL/DMABUF sink enabled');
+            } catch (e) {
+                console.warn(`Failed to enable GL media path, falling back to CPU: ${e}`);
+            }
+            this.setPlay();
         }
 
         _exportDbus() {
