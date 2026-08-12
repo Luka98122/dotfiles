@@ -17,6 +17,9 @@ My personal development environment configuration for **Ubuntu 24.04 LTS (Noble 
 - **Portable Setup:** Automated `setup.sh` script to bootstrap a fresh OS in one command.
 - **Patched Hanabi Live Wallpaper:** Includes a modified [Hanabi Extension](https://github.com/jeffshee/gnome-ext-hanabi) that fixes a severe VRAM memory leak (~300-600 MB per wallpaper switch). The fix is in `renderer/renderer.js` — it restarts the renderer subprocess on each wallpaper change rather than reusing the GStreamer pipeline, which retains decoded GL textures from previous videos.
 
+## GNOME Extensions
+GNOME only picks up a *newly added* extension on shell startup, and the shell cannot be restarted on Wayland — so after a fresh `stow gnome`, log out and back in before it appears.
+
 ## Updating Hanabi
 When updating the upstream Hanabi extension, the memory-leak patch in `renderer/renderer.js` must be re-applied. The two modified functions are `setFilePath()` and `setAutoWallpaper()`. Diff the local copy against upstream to port the changes.
 
