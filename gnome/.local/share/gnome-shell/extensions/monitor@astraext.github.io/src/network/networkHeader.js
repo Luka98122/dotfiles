@@ -27,6 +27,7 @@ import Header from '../header.js';
 import Config from '../config.js';
 import Signal from '../signal.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import NetworkMenu from './networkMenu.js';
 import NetworkGraph from './networkGraph.js';
 import NetworkBars from './networkBars.js';
@@ -284,7 +285,7 @@ export default GObject.registerClass(class NetworkHeader extends Header {
         this.tooltipMenu.addMenuItem(this.tooltipItem);
         Config.connect(this.tooltipMenu, 'changed::network-header-tooltip', () => {
             if (!Config.get_boolean('network-header-tooltip'))
-                this.tooltipMenu.close(true);
+                this.tooltipMenu.close(AnimationUtils.getMenuParams(true));
         });
         Utils.networkMonitor.listen(this.tooltipMenu, 'networkIO', () => {
             if (!Config.get_boolean('network-header-tooltip'))
@@ -316,14 +317,14 @@ export default GObject.registerClass(class NetworkHeader extends Header {
             return;
         if (!Config.get_boolean('network-header-tooltip'))
             return;
-        this.tooltipMenu.open(false);
+        this.tooltipMenu.open(AnimationUtils.getMenuParams(false));
     }
     hideTooltip() {
         if (!this.tooltipMenu)
             return;
         if (!Config.get_boolean('network-header-tooltip'))
             return;
-        this.tooltipMenu.close(false);
+        this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
     }
     destroy() {
         Signal.disconnect(this, 'notify::visible');
@@ -366,7 +367,7 @@ export default GObject.registerClass(class NetworkHeader extends Header {
         if (this.tooltipMenu) {
             Config.clear(this.tooltipMenu);
             Utils.networkMonitor.unlisten(this.tooltipMenu);
-            this.tooltipMenu.close(false);
+            this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
             Main.uiGroup.remove_child(this.tooltipMenu.actor);
             this.tooltipMenu.destroy();
             this.tooltipMenu = undefined;

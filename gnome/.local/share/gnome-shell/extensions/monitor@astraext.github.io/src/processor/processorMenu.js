@@ -23,6 +23,7 @@ import Clutter from 'gi://Clutter';
 import { gettext as _, pgettext } from 'resource:///org/gnome/shell/extensions/extension.js';
 import MenuBase from '../menu.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import Grid from '../grid.js';
 import Config from '../config.js';
 import ProcessorGraph from './processorGraph.js';
@@ -66,7 +67,7 @@ export default class ProcessorMenu extends MenuBase {
                 return;
             const updatedCpuName = updatedCpuInfo['Model name'] || '';
             hoverLabel.text = Utils.getCPUModelShortify(updatedCpuName);
-            this.cpuInfoPopup.close(false);
+            this.cpuInfoPopup.close(AnimationUtils.getMenuParams(false));
             this.cpuInfoPopup.destroy();
             this.createCPUInfoPopup(hoverButton, updatedCpuInfo, updatedCpuName);
         })
@@ -76,7 +77,7 @@ export default class ProcessorMenu extends MenuBase {
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.cpuInfoPopup) {
-                this.cpuInfoPopup.open(true);
+                this.cpuInfoPopup.open(AnimationUtils.getMenuParams(true));
                 const actorBox = this.cpuInfoPopup.box.get_allocation_box();
                 const monitorSize = MenuBase.getMonitorSize(actorBox);
                 const height = this.cpuInfoPopup.box.get_preferred_height(-1)[1];
@@ -103,7 +104,7 @@ export default class ProcessorMenu extends MenuBase {
         hoverButton.connect('leave-event', () => {
             hoverButton.style = defaultStyle;
             if (this.cpuInfoPopup)
-                this.cpuInfoPopup.close(true);
+                this.cpuInfoPopup.close(AnimationUtils.getMenuParams(true));
         });
         this.addToMenu(hoverButton, 2);
     }
@@ -223,12 +224,12 @@ export default class ProcessorMenu extends MenuBase {
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.cpuCategoryUsagePopup)
-                this.cpuCategoryUsagePopup.open(true);
+                this.cpuCategoryUsagePopup.open(AnimationUtils.getMenuParams(true));
         });
         hoverButton.connect('leave-event', () => {
             hoverButton.style = defaultStyle;
             if (this.cpuCategoryUsagePopup)
-                this.cpuCategoryUsagePopup.close(true);
+                this.cpuCategoryUsagePopup.close(AnimationUtils.getMenuParams(true));
         });
         this.addToMenu(hoverButton, 2);
     }
@@ -334,7 +335,7 @@ export default class ProcessorMenu extends MenuBase {
                     core.bar = undefined;
                 }
             }
-            this.cpuCoresUsagePopup.close(false);
+            this.cpuCoresUsagePopup.close(AnimationUtils.getMenuParams(false));
             this.cpuCoresUsagePopup.destroy();
             this.createCoresUsagePopup(hoverButton);
         })
@@ -344,7 +345,7 @@ export default class ProcessorMenu extends MenuBase {
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.cpuCoresUsagePopup) {
-                this.cpuCoresUsagePopup.open(false);
+                this.cpuCoresUsagePopup.open(AnimationUtils.getMenuParams(false));
                 Utils.processorMonitor.listen(hoverButton, 'cpuCoresUsage', this.update.bind(this, 'cpuCoresUsage', false));
                 if (this.lazyCoresPopupTimer == null) {
                     this.lazyCoresPopupTimer = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE + 1, () => {
@@ -360,7 +361,7 @@ export default class ProcessorMenu extends MenuBase {
         hoverButton.connect('leave-event', () => {
             hoverButton.style = defaultStyle;
             if (this.cpuCoresUsagePopup) {
-                this.cpuCoresUsagePopup.close(true);
+                this.cpuCoresUsagePopup.close(AnimationUtils.getMenuParams(true));
                 this.stopCoresPopupListeners();
             }
         });
@@ -463,12 +464,12 @@ export default class ProcessorMenu extends MenuBase {
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.topProcessesPopup)
-                this.topProcessesPopup.open(true);
+                this.topProcessesPopup.open(AnimationUtils.getMenuParams(true));
         });
         hoverButton.connect('leave-event', () => {
             hoverButton.style = defaultStyle;
             if (this.topProcessesPopup)
-                this.topProcessesPopup.close(true);
+                this.topProcessesPopup.close(AnimationUtils.getMenuParams(true));
         });
         this.addToMenu(hoverButton, 2);
     }
@@ -937,7 +938,7 @@ export default class ProcessorMenu extends MenuBase {
         }
     }
     destroy() {
-        this.close(false);
+        this.close(AnimationUtils.getMenuParams(false));
         this.onClose();
         Config.clear(this);
         if (this.gpuSection) {

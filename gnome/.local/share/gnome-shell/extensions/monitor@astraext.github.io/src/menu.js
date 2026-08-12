@@ -26,6 +26,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import Signal from './signal.js';
 import Utils from './utils/utils.js';
+import AnimationUtils from './utils/animationUtils.js';
 import Grid from './grid.js';
 import Config from './config.js';
 const LOADING_ICON_STYLE = 'icon-size:1em;min-width:1.2em;margin-right:0.25em;';
@@ -167,9 +168,10 @@ class MenuBase extends PopupMenu.PopupMenu {
         }
         icon.remove_all_transitions?.();
         icon.set_pivot_point(0.5, 0.5);
-        icon.rotation_angle_z = MenuBase.loadingSpinAngle;
+        icon.rotation_angle_z = AnimationUtils.reducedMotion ? 0 : MenuBase.loadingSpinAngle;
         icon.show();
-        MenuBase.startLoadingSpinTimer();
+        if (!AnimationUtils.reducedMotion)
+            MenuBase.startLoadingSpinTimer();
     }
     static stopLoadingIcon(icon) {
         MenuBase.removeLoadingIcon(icon, true);
@@ -230,10 +232,20 @@ class MenuBase extends PopupMenu.PopupMenu {
         }
     }
     static startLoadingSpinTimer() {
-        if (MenuBase.loadingSpinTimer !== 0)
+        if (MenuBase.loadingSpinTimer !== 0 || AnimationUtils.reducedMotion)
             return;
         MenuBase.loadingSpinTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
-            if (MenuBase.spinningLoadingIcons.size === 0) {
+            if (MenuBase.spinningLoadingIcons.size === 0 || AnimationUtils.reducedMotion) {
+                if (AnimationUtils.reducedMotion) {
+                    for (const icon of MenuBase.spinningLoadingIcons) {
+                        try {
+                            icon.rotation_angle_z = 0;
+                        }
+                        catch (e) {
+                            MenuBase.removeLoadingIcon(icon, false);
+                        }
+                    }
+                }
                 MenuBase.loadingSpinTimer = 0;
                 return GLib.SOURCE_REMOVE;
             }
@@ -280,7 +292,7 @@ class MenuBase extends PopupMenu.PopupMenu {
                 fallbackIconName: 'org.gnome.SystemMonitor-symbolic',
             });
             Signal.connect(this.systemMonitorButton, 'clicked', () => {
-                this.close(true);
+                this.close(AnimationUtils.getMenuParams(true));
                 app.activate();
             });
             this.utilityBox.add_child(this.systemMonitorButton);
@@ -294,7 +306,7 @@ class MenuBase extends PopupMenu.PopupMenu {
                     fallbackIconName: 'org.gnome.SystemMonitor-symbolic',
                 });
                 Signal.connect(this.systemMonitorButton, 'clicked', () => {
-                    this.close(true);
+                    this.close(AnimationUtils.getMenuParams(true));
                     app.activate();
                 });
                 this.utilityBox.add_child(this.systemMonitorButton);
@@ -306,7 +318,7 @@ class MenuBase extends PopupMenu.PopupMenu {
             fallbackIconName: 'preferences-system-symbolic',
         });
         Signal.connect(this.preferencesButton, 'clicked', () => {
-            this.close(true);
+            this.close(AnimationUtils.getMenuParams(true));
             try {
                 if (category)
                     Config.set('queued-pref-category', category, 'string');
@@ -515,7 +527,7 @@ class MenuBase extends PopupMenu.PopupMenu {
         Utils.error('update() needs to be overridden');
     }
     destroy() {
-        this.close(false);
+        this.close(AnimationUtils.getMenuParams(false));
         Config.clear(this);
         Signal.clear(this);
         Signal.clear(this.systemMonitorButton);

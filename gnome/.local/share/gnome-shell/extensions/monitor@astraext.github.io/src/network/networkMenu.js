@@ -25,6 +25,7 @@ import MenuBase from '../menu.js';
 import NetworkGraph from './networkGraph.js';
 import Grid from '../grid.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import Config from '../config.js';
 import Signal from '../signal.js';
 import NetworkMonitor from './networkMonitor.js';
@@ -39,7 +40,6 @@ export default class NetworkMenu extends MenuBase {
         super(sourceActor, arrowAlignment, { name: 'Network Menu', arrowSide });
         this.privilegedTopProcesses = false;
         this.updateTimer = 0;
-        this.destroyed = false;
         this.deviceListGeneration = 0;
         this.addMenuSection(_('Network'));
         this.createActivitySection();
@@ -102,12 +102,12 @@ export default class NetworkMenu extends MenuBase {
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.networkActivityPopup)
-                this.networkActivityPopup.open(true);
+                this.networkActivityPopup.open(AnimationUtils.getMenuParams(true));
         });
         hoverButton.connect('leave-event', () => {
             hoverButton.style = defaultStyle;
             if (this.networkActivityPopup)
-                this.networkActivityPopup.close(true);
+                this.networkActivityPopup.close(AnimationUtils.getMenuParams(true));
         });
         this.addToMenu(hoverButton, 2);
     }
@@ -274,12 +274,12 @@ export default class NetworkMenu extends MenuBase {
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.topProcessesPopup)
-                this.topProcessesPopup.open(true);
+                this.topProcessesPopup.open(AnimationUtils.getMenuParams(true));
         });
         hoverButton.connect('leave-event', () => {
             hoverButton.style = defaultStyle;
             if (this.topProcessesPopup)
-                this.topProcessesPopup.close(true);
+                this.topProcessesPopup.close(AnimationUtils.getMenuParams(true));
         });
         container.addToGrid(hoverButton);
         this.addToMenu(container, 2);
@@ -293,7 +293,7 @@ export default class NetworkMenu extends MenuBase {
     }
     refreshNethogsCapsUi() {
         const applyCaps = (hasCaps) => {
-            if (this.destroyed || !this.topProcesses)
+            if (!this.topProcesses)
                 return;
             if (hasCaps) {
                 this.privilegedTopProcesses = false;
@@ -326,7 +326,7 @@ export default class NetworkMenu extends MenuBase {
     refreshNethogsAvailability() {
         Utils.hasNethogsAsync()
             .then(hasNethogs => {
-            if (this.destroyed || !this.topProcesses)
+            if (!this.topProcesses)
                 return;
             if (!hasNethogs) {
                 this.topProcesses.container.hide();
@@ -543,12 +543,12 @@ export default class NetworkMenu extends MenuBase {
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.routesPopup)
-                this.routesPopup.open(true);
+                this.routesPopup.open(AnimationUtils.getMenuParams(true));
         });
         hoverButton.connect('leave-event', () => {
             hoverButton.style = defaultStyle;
             if (this.routesPopup)
-                this.routesPopup.close(true);
+                this.routesPopup.close(AnimationUtils.getMenuParams(true));
         });
         this.addToMenu(hoverButton, 2);
     }
@@ -660,11 +660,11 @@ export default class NetworkMenu extends MenuBase {
         }
     }
     async updateDeviceList() {
-        if (this.destroyed || !this.isOpen)
+        if (!this.isOpen)
             return;
         const generation = ++this.deviceListGeneration;
         const devices = await Utils.getNetworkInterfacesAsync();
-        if (this.destroyed || !this.isOpen || generation !== this.deviceListGeneration)
+        if (!this.isOpen || generation !== this.deviceListGeneration)
             return;
         if (devices.size > 0)
             this.noDevicesLabel.hide();
@@ -691,16 +691,16 @@ export default class NetworkMenu extends MenuBase {
         }
         for (const [id, device] of this.devices.entries()) {
             if (!devices.has(id)) {
-                this.devicesInfoPopup.get(id)?.close(true);
+                this.devicesInfoPopup.get(id)?.close(AnimationUtils.getMenuParams(true));
                 this.devicesInfoPopup.get(id)?.destroy();
                 this.devicesInfoPopup.delete(id);
-                this.devicesAddressesPopup.get(id)?.close(true);
+                this.devicesAddressesPopup.get(id)?.close(AnimationUtils.getMenuParams(true));
                 this.devicesAddressesPopup.get(id)?.destroy();
                 this.devicesAddressesPopup.delete(id);
-                this.devicesTotalsPopup.get(id)?.close(true);
+                this.devicesTotalsPopup.get(id)?.close(AnimationUtils.getMenuParams(true));
                 this.devicesTotalsPopup.get(id)?.destroy();
                 this.devicesTotalsPopup.delete(id);
-                this.devicesWirelessPopup.get(id)?.close(true);
+                this.devicesWirelessPopup.get(id)?.close(AnimationUtils.getMenuParams(true));
                 this.devicesWirelessPopup.get(id)?.destroy();
                 this.devicesWirelessPopup.delete(id);
                 device.container.destroy();
@@ -797,12 +797,12 @@ export default class NetworkMenu extends MenuBase {
         nameButton.connect('enter-event', () => {
             nameButton.style = this.selectionStyle;
             const popup = this.devicesInfoPopup.get(id);
-            popup?.open(true);
+            popup?.open(AnimationUtils.getMenuParams(true));
         });
         nameButton.connect('leave-event', () => {
             nameButton.style = '';
             const popup = this.devicesInfoPopup.get(id);
-            popup?.close(true);
+            popup?.close(AnimationUtils.getMenuParams(true));
         });
         headerGrid.addToGrid(nameButton);
         const icon = new St.Icon({
@@ -833,12 +833,12 @@ export default class NetworkMenu extends MenuBase {
             ipButton.style = this.selectionStyle;
             const popup = this.devicesAddressesPopup.get(id);
             if (popup && popup.addresses.length > 0 && popup.addresses[0].labelValue.visible)
-                popup.open(true);
+                popup.open(AnimationUtils.getMenuParams(true));
         });
         ipButton.connect('leave-event', () => {
             ipButton.style = '';
             const popup = this.devicesAddressesPopup.get(id);
-            popup?.close(true);
+            popup?.close(AnimationUtils.getMenuParams(true));
         });
         headerGrid.addToGrid(ipButton);
         container.addToGrid(headerGrid, 2);
@@ -909,12 +909,12 @@ export default class NetworkMenu extends MenuBase {
         rwButton.connect('enter-event', () => {
             rwButton.style = this.selectionStyle;
             const popup = this.devicesTotalsPopup.get(id);
-            popup?.open(true);
+            popup?.open(AnimationUtils.getMenuParams(true));
         });
         rwButton.connect('leave-event', () => {
             rwButton.style = '';
             const popup = this.devicesTotalsPopup.get(id);
-            popup?.close(true);
+            popup?.close(AnimationUtils.getMenuParams(true));
         });
         container.addToGrid(rwButton, 2);
         const wirelessButtonStyle = 'margin-bottom:0.5em;';
@@ -934,12 +934,12 @@ export default class NetworkMenu extends MenuBase {
         wirelessButton.connect('enter-event', () => {
             wirelessButton.style = wirelessButtonStyle + this.selectionStyle;
             const popup = this.devicesWirelessPopup.get(id);
-            popup?.open(true);
+            popup?.open(AnimationUtils.getMenuParams(true));
         });
         wirelessButton.connect('leave-event', () => {
             wirelessButton.style = wirelessButtonStyle;
             const popup = this.devicesWirelessPopup.get(id);
-            popup?.close(true);
+            popup?.close(AnimationUtils.getMenuParams(true));
         });
         container.addToGrid(wirelessButton, 2);
         return {
@@ -1544,7 +1544,7 @@ export default class NetworkMenu extends MenuBase {
                 fallbackIconName: 'network-wired-symbolic',
             });
             button.connect('clicked', () => {
-                this.close(true);
+                this.close(AnimationUtils.getMenuParams(true));
                 GLib.spawn_command_line_async('gnome-control-center network');
             });
             box.add_child(button);
@@ -1644,7 +1644,7 @@ export default class NetworkMenu extends MenuBase {
     }
     showRoutesLoading() {
         this.defaultRouteDevice.text = '';
-        this.routesPopup?.close(true);
+        this.routesPopup?.close(AnimationUtils.getMenuParams(true));
         for (const popupRoute of this.routesPopup.routes) {
             popupRoute.titleLabel.hide();
             popupRoute.metricLabel.hide();
@@ -1680,7 +1680,7 @@ export default class NetworkMenu extends MenuBase {
         if (code === 'deviceList') {
             const generation = ++this.deviceListGeneration;
             Utils.lowPriorityTask(() => {
-                if (this.destroyed || !this.isOpen || generation !== this.deviceListGeneration)
+                if (!this.isOpen || generation !== this.deviceListGeneration)
                     return;
                 this.updateDeviceList();
             }, GLib.PRIORITY_DEFAULT);
@@ -2368,8 +2368,8 @@ export default class NetworkMenu extends MenuBase {
         }
     }
     destroy() {
-        this.destroyed = true;
-        this.close(false);
+        this.deviceListGeneration++;
+        this.close(AnimationUtils.getMenuParams(false));
         this.onClose();
         this.stopPrivilegedTopProcesses();
         Utils.networkMonitor.unlisten(this, 'topProcessesStop');
@@ -2385,6 +2385,7 @@ export default class NetworkMenu extends MenuBase {
         this.networkActivityPopup = undefined;
         this.topProcessesPopup?.destroy();
         this.topProcessesPopup = undefined;
+        this.topProcesses = undefined;
         this.routesPopup?.destroy();
         this.routesPopup = undefined;
         if (this.devicesInfoPopup) {

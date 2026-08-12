@@ -61,6 +61,7 @@ export default class AstraMonitorExtension extends Extension {
             GLib.source_remove(this.timeout);
             this.timeout = 0;
         }
+        Utils.stopRuntime();
         try {
             this.container?.destroy();
         }

@@ -55,7 +55,15 @@ export default class GpuMonitor extends Monitor {
         updateMainGpu();
         const updateMonitoredGPUs = () => {
             this.monitoredGPUs = Utils.getMonitoredGPUs();
-            this.updateMonitorStatus();
+            if (this.status) {
+                this.stopGpuTask();
+                this.startGpuTask().catch((e) => {
+                    Utils.error('Error restarting GPU task', e);
+                });
+            }
+            else {
+                this.updateMonitorStatus();
+            }
         };
         Config.connect(this, 'changed::gpu-data', updateMonitoredGPUs.bind(this));
         updateMonitoredGPUs();
@@ -830,7 +838,7 @@ export default class GpuMonitor extends Monitor {
                 if (!gpuInfo['@id'])
                     continue;
                 let id = gpuInfo['@id'].toString().toLowerCase();
-                if (id.startsWith('00000000:'))
+                if (/^[0-9a-f]{8}:/.test(id))
                     id = id.slice(4);
                 const gpu = {
                     id,

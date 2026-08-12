@@ -58,7 +58,7 @@ export default class CommandHelper {
             return stdoutContent.trim();
         }
         catch (e) {
-            proc?.force_exit();
+            proc.force_exit();
             throw new Error(`Failed to run CommandHelper: ${e.message}`);
         }
         finally {

@@ -24,6 +24,7 @@ import Shell from 'gi://Shell';
 import { gettext as _, pgettext } from 'resource:///org/gnome/shell/extensions/extension.js';
 import Grid from '../grid.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import Config from '../config.js';
 import MenuBase from '../menu.js';
 import StorageBars from './storageBars.js';
@@ -35,7 +36,6 @@ export default class StorageMenu extends MenuBase {
         this.privilegedTopProcesses = false;
         this.updateTimer = 0;
         this.deviceListGeneration = 0;
-        this.destroyed = false;
         Utils.verbose('Initializing storage menu');
         this.addMenuSection(_('Storage'));
         this.createActivitySection();
@@ -92,12 +92,12 @@ export default class StorageMenu extends MenuBase {
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.storageActivityPopup)
-                this.storageActivityPopup.open(true);
+                this.storageActivityPopup.open(AnimationUtils.getMenuParams(true));
         });
         hoverButton.connect('leave-event', () => {
             hoverButton.style = defaultStyle;
             if (this.storageActivityPopup)
-                this.storageActivityPopup.close(true);
+                this.storageActivityPopup.close(AnimationUtils.getMenuParams(true));
         });
         this.addToMenu(hoverButton, 2);
     }
@@ -223,12 +223,12 @@ export default class StorageMenu extends MenuBase {
         hoverButton.connect('enter-event', () => {
             hoverButton.style = defaultStyle + this.selectionStyle;
             if (this.topProcessesPopup)
-                this.topProcessesPopup.open(true);
+                this.topProcessesPopup.open(AnimationUtils.getMenuParams(true));
         });
         hoverButton.connect('leave-event', () => {
             hoverButton.style = defaultStyle;
             if (this.topProcessesPopup)
-                this.topProcessesPopup.close(true);
+                this.topProcessesPopup.close(AnimationUtils.getMenuParams(true));
         });
         this.addToMenu(hoverButton, 2);
         this.topProcesses = {
@@ -336,11 +336,11 @@ export default class StorageMenu extends MenuBase {
         }
     }
     async updateDeviceList() {
-        if (this.destroyed || !this.isOpen)
+        if (!this.isOpen)
             return;
         const generation = ++this.deviceListGeneration;
         const devices = await Utils.getBlockDevicesAsync();
-        if (this.destroyed || !this.isOpen || generation !== this.deviceListGeneration)
+        if (!this.isOpen || generation !== this.deviceListGeneration)
             return;
         if (devices.size > 0)
             this.noDevicesLabel.hide();
@@ -371,10 +371,10 @@ export default class StorageMenu extends MenuBase {
         }
         for (const [id, device] of this.devices.entries()) {
             if (!devices.has(id)) {
-                this.devicesInfoPopup.get(id)?.close(true);
+                this.devicesInfoPopup.get(id)?.close(AnimationUtils.getMenuParams(true));
                 this.devicesInfoPopup.get(id)?.destroy();
                 this.devicesInfoPopup.delete(id);
-                this.devicesTotalsPopup.get(id)?.close(true);
+                this.devicesTotalsPopup.get(id)?.close(AnimationUtils.getMenuParams(true));
                 this.devicesTotalsPopup.get(id)?.destroy();
                 this.devicesTotalsPopup.delete(id);
                 device.container.destroy();
@@ -499,12 +499,12 @@ export default class StorageMenu extends MenuBase {
             topInfoButton.style = this.selectionStyle;
             const popup = this.devicesInfoPopup.get(id);
             if (popup?.empty === false)
-                popup?.open(true);
+                popup?.open(AnimationUtils.getMenuParams(true));
         });
         topInfoButton.connect('leave-event', () => {
             topInfoButton.style = '';
             const popup = this.devicesInfoPopup.get(id);
-            popup?.close(true);
+            popup?.close(AnimationUtils.getMenuParams(true));
         });
         const rwButton = new St.Button({
             reactive: true,
@@ -573,12 +573,12 @@ export default class StorageMenu extends MenuBase {
         rwButton.connect('enter-event', () => {
             rwButton.style = this.selectionStyle;
             const popup = this.devicesTotalsPopup.get(id);
-            popup?.open(true);
+            popup?.open(AnimationUtils.getMenuParams(true));
         });
         rwButton.connect('leave-event', () => {
             rwButton.style = '';
             const popup = this.devicesTotalsPopup.get(id);
-            popup?.close(true);
+            popup?.close(AnimationUtils.getMenuParams(true));
         });
         container.addToGrid(rwButton, 2);
         return {
@@ -829,7 +829,7 @@ export default class StorageMenu extends MenuBase {
                     fallbackIconName: 'baobab-symbolic',
                 });
                 button.connect('clicked', () => {
-                    this.close(true);
+                    this.close(AnimationUtils.getMenuParams(true));
                     baobabApp.activate();
                 });
                 box.add_child(button);
@@ -842,7 +842,7 @@ export default class StorageMenu extends MenuBase {
                     fallbackIconName: 'utilities-disk-utility-symbolic',
                 });
                 button.connect('clicked', () => {
-                    this.close(true);
+                    this.close(AnimationUtils.getMenuParams(true));
                     diskApp.activate();
                 });
                 box.add_child(button);
@@ -915,7 +915,7 @@ export default class StorageMenu extends MenuBase {
         if (code === 'deviceList') {
             const generation = ++this.deviceListGeneration;
             Utils.lowPriorityTask(() => {
-                if (this.destroyed || !this.isOpen || generation !== this.deviceListGeneration)
+                if (!this.isOpen || generation !== this.deviceListGeneration)
                     return;
                 this.updateDeviceList();
             }, GLib.PRIORITY_DEFAULT);
@@ -1161,7 +1161,7 @@ export default class StorageMenu extends MenuBase {
                 const info = storageInfo.get(id);
                 if (!info) {
                     popup.empty = true;
-                    popup.close(true);
+                    popup.close(AnimationUtils.getMenuParams(true));
                     continue;
                 }
                 popup.empty = false;
@@ -1253,7 +1253,7 @@ export default class StorageMenu extends MenuBase {
         }
     }
     destroy() {
-        this.destroyed = true;
+        this.deviceListGeneration++;
         this.stopPrivilegedTopProcesses();
         Utils.storageMonitor.unlisten(this, 'topProcessesIOTopStop');
         Config.clear(this);
@@ -1266,10 +1266,10 @@ export default class StorageMenu extends MenuBase {
         for (const [id, device] of this.devices.entries()) {
             device.bar?.destroy();
             device.bar = undefined;
-            this.devicesInfoPopup.get(id)?.close(true);
+            this.devicesInfoPopup.get(id)?.close(AnimationUtils.getMenuParams(true));
             this.devicesInfoPopup.get(id)?.destroy();
             this.devicesInfoPopup.delete(id);
-            this.devicesTotalsPopup.get(id)?.close(true);
+            this.devicesTotalsPopup.get(id)?.close(AnimationUtils.getMenuParams(true));
             this.devicesTotalsPopup.get(id)?.destroy();
             this.devicesTotalsPopup.delete(id);
         }

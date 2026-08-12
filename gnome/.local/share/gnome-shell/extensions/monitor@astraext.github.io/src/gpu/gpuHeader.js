@@ -26,6 +26,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import Header from '../header.js';
 import Config from '../config.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import GpuMenu from './gpuMenu.js';
 import GpuActivityGraph from './gpuActivityGraph.js';
 import GpuMemoryGraph from './gpuMemoryGraph.js';
@@ -417,7 +418,7 @@ export default GObject.registerClass(class GpuHeader extends Header {
         this.tooltipMenu.addMenuItem(this.tooltipItem);
         Config.connect(this.tooltipMenu, 'changed::gpu-header-tooltip', () => {
             if (!Config.get_boolean('gpu-header-tooltip'))
-                this.tooltipMenu.close(true);
+                this.tooltipMenu.close(AnimationUtils.getMenuParams(true));
         });
         Utils.gpuMonitor.listen(this.tooltipMenu, 'gpuUpdate', (data) => {
             if (!Config.get_boolean('gpu-header-tooltip'))
@@ -465,14 +466,14 @@ export default GObject.registerClass(class GpuHeader extends Header {
             return;
         if (!Config.get_boolean('gpu-header-tooltip'))
             return;
-        this.tooltipMenu.open(false);
+        this.tooltipMenu.open(AnimationUtils.getMenuParams(false));
     }
     hideTooltip() {
         if (!this.tooltipMenu)
             return;
         if (!Config.get_boolean('gpu-header-tooltip'))
             return;
-        this.tooltipMenu.close(false);
+        this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
     }
     destroy() {
         Config.clear(this);
@@ -539,7 +540,7 @@ export default GObject.registerClass(class GpuHeader extends Header {
         if (this.tooltipMenu) {
             Config.clear(this.tooltipMenu);
             Utils.gpuMonitor.unlisten(this.tooltipMenu);
-            this.tooltipMenu.close(false);
+            this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
             Main.uiGroup.remove_child(this.tooltipMenu.actor);
             this.tooltipMenu.destroy();
             this.tooltipMenu = undefined;

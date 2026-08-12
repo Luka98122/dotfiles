@@ -1,4 +1,27 @@
-# Astra Monitor 41 - TO BE RELEASED
+# Astra Monitor 42 - August 11 2026
+
+### Compatibility
+
+-   GNOME 51 support.
+-   Respects the system reduced motion setting by disabling all animations when enabled.
+
+### Subprocess management
+
+-   **POSIX Subprocess**: posix_spawn() is now the default subprocess backend for everyone (new installs and upgrades). It is mature and well tested and improves UI responsiveness when running commands. The old experimental opt-in has been removed.
+-   **Fallback**: If needed, you can revert to the previous backend from **Preferences → Utility → Subprocess** by enabling **Legacy Subprocess**.
+
+_Note: This is an important change to subprocess management, so feedback is very welcome. If you notice any regression, please open an issue: [Astra Monitor issues](https://github.com/AstraExt/astra-monitor/issues)._
+
+### Bug fixes
+
+-   Optimized extension disable lifecycle by stopping monitors and pending tasks before UI teardown, reducing race conditions during shutdown.
+-   Optimized debug file logging by lazily creating and reusing its file resources, then releasing them during extension teardown. [[#230](https://github.com/AstraExt/astra-monitor/issues/230)]
+-   Fixed GPU detection failing with "No GPU found" when the GPU was the last device in `lspci` output, by flushing the final parsed device block. [[#235](https://github.com/AstraExt/astra-monitor/issues/235)] [[#236](https://github.com/AstraExt/astra-monitor/pull/236)] (Thanks to [@bioarchitectonic](https://github.com/bioarchitectonic))
+-   Fixed NVIDIA GPU stats showing `-%` on hosts with a non-zero PCI domain (e.g. DGX Spark / GB10), by normalizing the 8-digit domain padding from `nvidia-smi` to match `lspci`. [[#235](https://github.com/AstraExt/astra-monitor/issues/235)] [[#236](https://github.com/AstraExt/astra-monitor/pull/236)] (Thanks to [@bioarchitectonic](https://github.com/bioarchitectonic))
+-   Fixed EDID parsing failing with `RangeError: Invalid array length` on displays that carry DisplayID extension blocks (e.g. Dell Alienware AW2725DM), by only walking CTA-861 data blocks and hardening audio descriptor length handling. [[#234](https://github.com/AstraExt/astra-monitor/issues/234)] (Thanks to [@6Woo](https://github.com/6Woo))
+-   Fixed GPU monitoring stuck on the loading spinner when `gpu-data` held the string `""` instead of an array, which also broke the Preferences → GPU Monitor toggle with `gpusData.push is not a function`. [[#233](https://github.com/AstraExt/astra-monitor/issues/233)] (Thanks to [@OozoraAhiru](https://github.com/OozoraAhiru))
+
+# Astra Monitor 41 - June 28 2026
 
 ### Menu behavior
 

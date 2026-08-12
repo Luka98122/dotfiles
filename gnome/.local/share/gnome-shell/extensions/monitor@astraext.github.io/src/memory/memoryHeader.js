@@ -26,6 +26,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import Header from '../header.js';
 import Config from '../config.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import MemoryMenu from './memoryMenu.js';
 import MemoryGraph from './memoryGraph.js';
 import MemoryBars from './memoryBars.js';
@@ -323,7 +324,7 @@ export default GObject.registerClass(class MemoryHeader extends Header {
         this.tooltipMenu.addMenuItem(this.tooltipItem);
         Config.connect(this.tooltipMenu, 'changed::memory-header-tooltip', () => {
             if (!Config.get_boolean('memory-header-tooltip'))
-                this.tooltipMenu.close(true);
+                this.tooltipMenu.close(AnimationUtils.getMenuParams(true));
         });
         Utils.memoryMonitor.listen(this.tooltipMenu, 'memoryUsage', () => {
             if (!Config.get_boolean('memory-header-tooltip'))
@@ -368,14 +369,14 @@ export default GObject.registerClass(class MemoryHeader extends Header {
             return;
         if (!Config.get_boolean('memory-header-tooltip'))
             return;
-        this.tooltipMenu.open(false);
+        this.tooltipMenu.open(AnimationUtils.getMenuParams(false));
     }
     hideTooltip() {
         if (!this.tooltipMenu)
             return;
         if (!Config.get_boolean('memory-header-tooltip'))
             return;
-        this.tooltipMenu.close(false);
+        this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
     }
     destroy() {
         Config.clear(this);
@@ -422,7 +423,7 @@ export default GObject.registerClass(class MemoryHeader extends Header {
         if (this.tooltipMenu) {
             Config.clear(this.tooltipMenu);
             Utils.memoryMonitor.unlisten(this.tooltipMenu);
-            this.tooltipMenu.close(false);
+            this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
             Main.uiGroup.remove_child(this.tooltipMenu.actor);
             this.tooltipMenu.destroy();
             this.tooltipMenu = undefined;

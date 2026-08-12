@@ -5,6 +5,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import Config from '../config.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 export default class ProfilesMenu extends PopupMenu.PopupMenu {
     constructor(sourceActor, arrowAlignment) {
         const shellBarPosition = Config.get_string('shell-bar-position');
@@ -22,7 +23,7 @@ export default class ProfilesMenu extends PopupMenu.PopupMenu {
                 const [menuX, menuY] = this.actor.get_transformed_position();
                 const [menuWidth, menuHeight] = this.actor.get_transformed_size();
                 if (x < menuX || x > menuX + menuWidth || y < menuY || y > menuY + menuHeight) {
-                    this.close(true);
+                    this.close(AnimationUtils.getMenuParams(true));
                     return Clutter.EVENT_STOP;
                 }
             }
@@ -30,7 +31,7 @@ export default class ProfilesMenu extends PopupMenu.PopupMenu {
         });
         this.sourceActorDestroyId = sourceActor.connect('destroy', () => {
             this.sourceActorDestroyId = undefined;
-            this.close(false);
+            this.close(AnimationUtils.getMenuParams(false));
         });
     }
     createHeader() {
@@ -49,7 +50,7 @@ export default class ProfilesMenu extends PopupMenu.PopupMenu {
             }
             catch (e) {
             }
-            this.close(true);
+            this.close(AnimationUtils.getMenuParams(true));
         });
     }
     createProfiles() {
@@ -68,13 +69,13 @@ export default class ProfilesMenu extends PopupMenu.PopupMenu {
             item.connect('activate', () => {
                 Config.set('current-profile', profile, 'string');
                 Utils.lowPriorityTask(Config.syncCurrentProfile);
-                this.close(true);
+                this.close(AnimationUtils.getMenuParams(true));
             });
         }
     }
-    close(animate) {
+    close(params) {
         if (!this.freed)
-            super.close(animate);
+            super.close(params);
         this.destroy();
     }
     destroy() {

@@ -24,6 +24,7 @@ import GLib from 'gi://GLib';
 import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import MenuBase from '../menu.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import Grid from '../grid.js';
 import Config from '../config.js';
 import GpuActivityBars from '../gpu/gpuActivityBars.js';
@@ -32,7 +33,6 @@ export default class GpuMenuComponent {
     constructor(params) {
         this.shown = false;
         this.compact = false;
-        this.destroyed = false;
         this.displayUpdateTimer = 0;
         this.parent = params.parent;
         if (params.compact)
@@ -66,7 +66,7 @@ export default class GpuMenuComponent {
         this.loadingIcon.hide();
         this.container.addToGrid(this.loadingIcon, 2);
         const populateGpuSections = (GPUsList) => {
-            if (this.destroyed || !this.container || this.sections.length > 0)
+            if (!this.container || this.sections.length > 0)
                 return;
             if (!GPUsList || GPUsList.length === 0) {
                 if (this.noGPULabel)
@@ -99,7 +99,7 @@ export default class GpuMenuComponent {
                 .then(populateGpuSections)
                 .catch((e) => {
                 Utils.error('Error loading GPU menu', e);
-                if (!this.destroyed && this.noGPULabel)
+                if (this.noGPULabel)
                     this.noGPULabel.text = _('No GPU found');
             });
         }
@@ -129,12 +129,12 @@ export default class GpuMenuComponent {
         infoButton.connect('enter-event', () => {
             infoButton.style = defaultStyle + this.parent.selectionStyle;
             if (infoPopup)
-                infoPopup.open(true);
+                infoPopup.open(AnimationUtils.getMenuParams(true));
         });
         infoButton.connect('leave-event', () => {
             infoButton.style = defaultStyle;
             if (infoPopup)
-                infoPopup.close(true);
+                infoPopup.close(AnimationUtils.getMenuParams(true));
         });
         grid.addToGrid(infoButton);
         const displaysButton = new St.Button({
@@ -150,12 +150,12 @@ export default class GpuMenuComponent {
         displaysButton.connect('enter-event', () => {
             displaysButton.style = defaultStyle + this.parent.selectionStyle;
             if (displaysPopup)
-                displaysPopup.open(true);
+                displaysPopup.open(AnimationUtils.getMenuParams(true));
         });
         displaysButton.connect('leave-event', () => {
             displaysButton.style = defaultStyle;
             if (displaysPopup)
-                displaysPopup.close(true);
+                displaysPopup.close(AnimationUtils.getMenuParams(true));
         });
         grid.addToGrid(displaysButton);
         const displaysTitle = new St.Label({
@@ -178,12 +178,12 @@ export default class GpuMenuComponent {
         activityButton.connect('enter-event', () => {
             activityButton.style = defaultStyle + this.parent.selectionStyle;
             if (activityPopup)
-                activityPopup.open(true);
+                activityPopup.open(AnimationUtils.getMenuParams(true));
         });
         activityButton.connect('leave-event', () => {
             activityButton.style = defaultStyle;
             if (activityPopup)
-                activityPopup.close(true);
+                activityPopup.close(AnimationUtils.getMenuParams(true));
         });
         grid.addToGrid(activityButton);
         const activityTitle = new St.Label({
@@ -228,12 +228,12 @@ export default class GpuMenuComponent {
         vramButton.connect('enter-event', () => {
             vramButton.style = defaultStyle + this.parent.selectionStyle;
             if (vramPopup)
-                vramPopup.open(true);
+                vramPopup.open(AnimationUtils.getMenuParams(true));
         });
         vramButton.connect('leave-event', () => {
             vramButton.style = defaultStyle;
             if (vramPopup)
-                vramPopup.close(true);
+                vramPopup.close(AnimationUtils.getMenuParams(true));
         });
         grid.addToGrid(vramButton);
         const vramTitle = new St.Label({
@@ -332,12 +332,12 @@ export default class GpuMenuComponent {
         topProcessesButton.connect('enter-event', () => {
             topProcessesButton.style = defaultStyle + this.parent.selectionStyle;
             if (topProcessesPopup)
-                topProcessesPopup.open(true);
+                topProcessesPopup.open(AnimationUtils.getMenuParams(true));
         });
         topProcessesButton.connect('leave-event', () => {
             topProcessesButton.style = defaultStyle;
             if (topProcessesPopup)
-                topProcessesPopup.close(true);
+                topProcessesPopup.close(AnimationUtils.getMenuParams(true));
         });
         const topProcessesTitle = new St.Label({
             text: _('Top Processes'),
@@ -387,12 +387,12 @@ export default class GpuMenuComponent {
         sensorsButton.connect('enter-event', () => {
             sensorsButton.style = defaultStyle + this.parent.selectionStyle;
             if (sensorsPopup)
-                sensorsPopup.open(true);
+                sensorsPopup.open(AnimationUtils.getMenuParams(true));
         });
         sensorsButton.connect('leave-event', () => {
             sensorsButton.style = defaultStyle;
             if (sensorsPopup)
-                sensorsPopup.close(true);
+                sensorsPopup.close(AnimationUtils.getMenuParams(true));
         });
         const sensorsGrid = new Grid({ numCols: 1 });
         sensorsButton.set_child(sensorsGrid);
@@ -1445,7 +1445,7 @@ export default class GpuMenuComponent {
         return popup;
     }
     update(data) {
-        if (this.destroyed || !this.container)
+        if (!this.container)
             return;
         if (!data)
             return;
@@ -1564,7 +1564,7 @@ export default class GpuMenuComponent {
         }
     }
     updateDisplays() {
-        if (this.destroyed || !this.shown || !this.container)
+        if (!this.shown || !this.container)
             return;
         let displaysData = Utils.gpuMonitor.getCurrentValue('displays');
         if (!Array.isArray(displaysData))
@@ -1595,7 +1595,7 @@ export default class GpuMenuComponent {
         }
     }
     onOpen() {
-        if (this.destroyed || !this.container)
+        if (!this.container)
             return;
         this.clear();
         this.shown = true;
@@ -1645,13 +1645,13 @@ export default class GpuMenuComponent {
             MenuBase.stopLoadingIcon(this.loadingIcon);
     }
     destroy() {
-        this.destroyed = true;
         this.onClose();
         Config.clear(this);
         if (this.title)
             Config.clear(this.title);
         if (this.noGPULabel)
             Config.clear(this.noGPULabel);
+        this.noGPULabel = undefined;
         if (this.sections) {
             for (const section of this.sections) {
                 section.vram.bar?.destroy();
@@ -1689,5 +1689,6 @@ export default class GpuMenuComponent {
         this.mainSensors = undefined;
         this.container?.destroy();
         this.container = undefined;
+        this.loadingIcon = undefined;
     }
 }

@@ -23,6 +23,7 @@ import { gettext as _, ngettext } from 'resource:///org/gnome/shell/extensions/e
 import MenuBase from '../menu.js';
 import Grid from '../grid.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import Config from '../config.js';
 export default class SensorsMenu extends MenuBase {
     constructor(sourceActor, arrowAlignment, arrowSide) {
@@ -203,11 +204,11 @@ export default class SensorsMenu extends MenuBase {
         popup.addToMenu(popupGrid, 2);
         container.connect('enter-event', () => {
             container.style = defaultStyle + this.selectionStyle;
-            popup.open(true);
+            popup.open(AnimationUtils.getMenuParams(true));
         });
         container.connect('leave-event', () => {
             container.style = defaultStyle;
-            popup.close(true);
+            popup.close(AnimationUtils.getMenuParams(true));
         });
         return {
             data: null,
@@ -219,7 +220,7 @@ export default class SensorsMenu extends MenuBase {
         };
     }
     destroySensor(id, sensor) {
-        sensor.popup.close(false);
+        sensor.popup.close(AnimationUtils.getMenuParams(false));
         sensor.popup.destroy();
         sensor.container.destroy();
         this.sensors.delete(id);

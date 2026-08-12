@@ -1,0 +1,38 @@
+.study-timer-box {
+    spacing: 6px;
+}
+
+.study-timer-remaining {
+    font-weight: bold;
+    font-feature-settings: "tnum";
+}
+
+.study-timer-icon.warning,
+.study-timer-remaining.warning {
+    color: #f8e45c;
+}
+
+.study-timer-icon.overtime,
+.study-timer-remaining.overtime {
+    color: #ff7b63;
+}
+
+.study-timer-icon.paused,
+.study-timer-remaining.paused {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.study-timer-status {
+    font-weight: bold;
+    padding-bottom: 4px;
+}
+
+.study-timer-row {
+    padding: 2px 12px;
+}
+
+.study-timer-action {
+    margin: 0 3px;
+    padding: 8px 12px;
+    min-width: 72px;
+}

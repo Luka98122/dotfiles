@@ -1,0 +1,8 @@
+{
+  "uuid": "study-timer@luka.markovic",
+  "name": "Study Timer",
+  "description": "A top bar clock that doubles as a study timer. One-click 45 min and 1:30 h sessions, +5 / +15 min top-ups, pause and stop.",
+  "shell-version": ["45", "46", "47", "48"],
+  "version": 1,
+  "url": "https://github.com/lukamarkovic/dotfiles"
+}

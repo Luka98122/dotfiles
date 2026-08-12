@@ -149,32 +149,14 @@ export default class Utility {
             subtitle: _('Warning: may affect performance, use only if you know what you are doing.'),
         }, 'debug-mode', group);
         utilityPage.add(group);
-        group = new Adw.PreferencesGroup({ title: _('Experimental Features') });
+        group = new Adw.PreferencesGroup({ title: _('Subprocess') });
         PrefsUtils.addSwitchRow({
-            title: _('PosixSpawn Subprocess'),
-            subtitle: _('Experimental posix_spawn() subprocess monitoring.\n' +
-                'This might help with UI performance issues.'),
-        }, {
-            watch: 'experimental-features',
-            get: () => {
-                const features = Config.get_json('experimental-features');
-                return features?.includes('ps_subprocess') ?? false;
-            },
-            set: (value) => {
-                const features = Config.get_json('experimental-features');
-                if (value) {
-                    if (!features?.includes('ps_subprocess')) {
-                        features.push('ps_subprocess');
-                    }
-                }
-                else {
-                    if (features?.includes('ps_subprocess')) {
-                        features.splice(features.indexOf('ps_subprocess'), 1);
-                    }
-                }
-                Config.set('experimental-features', features, 'json');
-            },
-        }, group);
+            title: _('Legacy Subprocess'),
+            subtitle: _('Use the legacy subprocess backend instead of posix_spawn().\n' +
+                'Enable only if you experience issues with the preferred posix_spawn() backend.'),
+        }, 'legacy-subprocess', group);
+        utilityPage.add(group);
+        group = new Adw.PreferencesGroup({ title: _('Experimental Features') });
         utilityPage.add(group);
         return utilityPage;
     }

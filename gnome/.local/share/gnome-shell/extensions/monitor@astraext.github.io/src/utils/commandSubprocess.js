@@ -5,7 +5,6 @@ export class CommandSubprocess {
         this.subprocess = null;
         this.stdoutStream = null;
         this.stderrStream = null;
-        this.destroyed = false;
     }
     static async run(command, cancellableTaskManager) {
         const commandSubprocess = new CommandSubprocess();
@@ -112,10 +111,9 @@ export class CommandSubprocess {
         return decoder.decode(fullBuffer);
     }
     destroy() {
-        if (this.destroyed) {
+        if (!this.subprocess && !this.stdoutStream && !this.stderrStream) {
             return;
         }
-        this.destroyed = true;
         try {
             this.subprocess?.force_exit();
         }

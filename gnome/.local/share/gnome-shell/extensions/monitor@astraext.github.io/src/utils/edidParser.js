@@ -486,6 +486,7 @@ class Edid {
             '1152x870 @ 75 Hz',
         ];
         this.DTD_LENGTH = 18;
+        this.CTA_EXT_TAG = 0x02;
         this.xyPixelRatioEnum = [
             { string: '16:10' },
             { string: '4:3' },
@@ -1358,17 +1359,26 @@ class Edid {
             this.exts[extIndex].blockNumber = extIndex + 1;
             this.exts[extIndex].extTag = this.getExtTag(extIndex);
             this.exts[extIndex].revisionNumber = this.getRevisionNumber(extIndex);
+            this.exts[extIndex].checksum = this.getExtChecksum(extIndex);
+            if (this.exts[extIndex].extTag !== this.CTA_EXT_TAG) {
+                this.exts[extIndex].dtds = [];
+                continue;
+            }
             this.exts[extIndex].dtdStart = this.getDtdStart(extIndex);
             this.exts[extIndex].numDtds = this.getNumberExtDtds(extIndex);
             this.exts[extIndex].underscan = this.getUnderscan(extIndex);
             this.exts[extIndex].basicAudio = this.getBasicAudio(extIndex);
             this.exts[extIndex].ycbcr444 = this.getYcBcR444(extIndex);
             this.exts[extIndex].ycbcr422 = this.getYcBcR422(extIndex);
-            if (this.exts[extIndex].dtdStart !== 4) {
+            this.exts[extIndex].dtds = [];
+            const dtdStart = this.exts[extIndex].dtdStart;
+            const hasValidDtdStart = dtdStart >= 4 && dtdStart <= 127;
+            if (this.exts[extIndex].revisionNumber >= 3 && hasValidDtdStart && dtdStart > 4) {
                 this.exts[extIndex].dataBlockCollection = this.parseDataBlockCollection(extIndex);
             }
-            this.exts[extIndex].dtds = this.getExtDtds(extIndex, this.exts[extIndex].dtdStart);
-            this.exts[extIndex].checksum = this.getExtChecksum(extIndex);
+            if (hasValidDtdStart) {
+                this.exts[extIndex].dtds = this.getExtDtds(extIndex, dtdStart);
+            }
         }
     }
     validateHeader() {
@@ -1792,6 +1802,8 @@ class Edid {
         while (index < endAddress) {
             const blockTagCode = (this.edidData[index] >> TAG_CODE_OFFSET) & TAG_CODE_MASK;
             const blockLength = this.edidData[index] & DATA_BLOCK_LENGTH_MASK;
+            if (index + blockLength + 1 > endAddress)
+                break;
             let dataBlock;
             if (blockTagCode === this.dataBlockType.AUDIO.value) {
                 dataBlock = this.parseAudioDataBlock(index + 1, blockLength);
@@ -1815,9 +1827,9 @@ class Edid {
         return dataBlockCollection;
     }
     parseAudioDataBlock(startAddress, blockLength) {
-        const audioBlock = [];
+        const audioBlock = {};
         const SHORT_AUDIO_DESC_LENGTH = 3;
-        const numberShortAudioDescriptors = blockLength / SHORT_AUDIO_DESC_LENGTH;
+        const numberShortAudioDescriptors = Math.floor(blockLength / SHORT_AUDIO_DESC_LENGTH);
         let shortAudDescIndex = 0;
         let index = startAddress;
         audioBlock.tag = this.dataBlockType.AUDIO;
@@ -2135,9 +2147,9 @@ class Edid {
         const dtdArray = [];
         let dtdCounter = 0;
         let dtdIndex = startAddress + BLOCK_OFFSET;
-        const endAddress = this.EDID_BLOCK_LENGTH * (extIndex + 2) - 2;
-        while ((this.edidData[dtdIndex] !== 0 || this.edidData[dtdIndex + 1] !== 0) &&
-            dtdIndex < endAddress) {
+        const checksumAddress = this.EDID_BLOCK_LENGTH * (extIndex + 2) - 1;
+        while (dtdIndex + this.DTD_LENGTH <= checksumAddress &&
+            (this.edidData[dtdIndex] !== 0 || this.edidData[dtdIndex + 1] !== 0)) {
             const dtd = this.parseDtd(dtdIndex);
             dtdArray[dtdCounter] = dtd;
             dtdCounter++;

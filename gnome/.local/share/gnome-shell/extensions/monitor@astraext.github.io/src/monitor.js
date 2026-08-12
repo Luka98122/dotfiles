@@ -196,31 +196,27 @@ export default class Monitor {
         listeners.push({ callback, subject });
         this.startListeningFor(key);
     }
-    async notify(key, value) {
+    notify(key, value) {
         if (!Utils.ready)
             return;
-        const listeners = this.listeners.get(key);
-        if (listeners) {
-            const aliveListeners = [];
-            for (const listener of listeners) {
-                try {
-                    listener.callback(value);
-                    aliveListeners.push(listener);
-                }
-                catch (e) {
-                    Utils.error(`Error notifying listener for ${key}`, e);
-                    const msg = e?.message ?? '';
-                    if (typeof msg === 'string' && msg.includes('has been already disposed')) {
-                    }
-                    else {
-                        aliveListeners.push(listener);
-                    }
-                }
+        const registered = this.listeners.get(key);
+        if (!registered || registered.length === 0)
+            return;
+        for (const listener of [...registered]) {
+            if (!Utils.ready)
+                return;
+            const currentListeners = this.listeners.get(key);
+            if (!currentListeners?.includes(listener))
+                continue;
+            try {
+                listener.callback(value);
             }
-            if (aliveListeners.length !== listeners.length) {
-                this.listeners.set(key, aliveListeners);
-                if (aliveListeners.length === 0)
-                    this.stopListeningFor(key);
+            catch (e) {
+                Utils.error(`Error notifying listener for ${key}`, e);
+                const msg = e?.message ?? '';
+                if (typeof msg === 'string' && msg.includes('has been already disposed')) {
+                    this.unlisten(listener.subject, key);
+                }
             }
         }
     }

@@ -441,11 +441,12 @@ Config.globalSettingsKeys = [
     'queued-pref-category',
     'current-profile',
     'profiles',
+    'legacy-subprocess',
     'processor-menu-gpu',
     'processor-menu-gpu-color',
     'headers-height',
     'gpu-main',
     'experimental-features',
 ];
-Config.experimentalFeatures = ['ps_subprocess'];
+Config.experimentalFeatures = [];
 export default Config;

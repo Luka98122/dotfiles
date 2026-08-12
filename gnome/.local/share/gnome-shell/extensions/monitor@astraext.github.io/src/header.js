@@ -24,6 +24,7 @@ import Atk from 'gi://Atk';
 import Clutter from 'gi://Clutter';
 import Signal from './signal.js';
 import Utils from './utils/utils.js';
+import AnimationUtils from './utils/animationUtils.js';
 import Config from './config.js';
 import ProfilesMenu from './profiles/profilesMenu.js';
 export default GObject.registerClass(class Header extends St.Widget {
@@ -70,7 +71,7 @@ export default GObject.registerClass(class Header extends St.Widget {
         });
         Signal.connect(this, 'hide', () => {
             if (this.menu)
-                this.menu.close(true);
+                this.menu.close(AnimationUtils.getMenuParams(true));
         });
         Signal.connect(this, 'enter-event', () => {
             this.showTooltip();
@@ -149,7 +150,7 @@ export default GObject.registerClass(class Header extends St.Widget {
     }
     clickAlt() {
         const profilesMenu = new ProfilesMenu(this, 0.5);
-        profilesMenu.open(true);
+        profilesMenu.open(AnimationUtils.getMenuParams(true));
     }
     setCompacted(compacted) {
         if (compacted) {

@@ -28,6 +28,7 @@ import Header from '../header.js';
 import Config from '../config.js';
 import Signal from '../signal.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import Grid from '../grid.js';
 import SensorsMenu from './sensorsMenu.js';
 import MenuBase from '../menu.js';
@@ -330,7 +331,7 @@ export default GObject.registerClass(class SensorsHeader extends Header {
         this.tooltipMenu.addMenuItem(this.tooltipItem);
         Config.connect(this.tooltipMenu, 'changed::sensors-header-tooltip', () => {
             if (!Config.get_boolean('sensors-header-tooltip'))
-                this.tooltipMenu.close(true);
+                this.tooltipMenu.close(AnimationUtils.getMenuParams(true));
         });
         Utils.sensorsMonitor.listen(this.tooltipMenu, 'sensorsData', () => {
             if (!Config.get_boolean('sensors-header-tooltip'))
@@ -365,14 +366,14 @@ export default GObject.registerClass(class SensorsHeader extends Header {
             return;
         if (!Config.get_boolean('sensors-header-tooltip'))
             return;
-        this.tooltipMenu.open(false);
+        this.tooltipMenu.open(AnimationUtils.getMenuParams(false));
     }
     hideTooltip() {
         if (!this.tooltipMenu)
             return;
         if (!Config.get_boolean('sensors-header-tooltip'))
             return;
-        this.tooltipMenu.close(false);
+        this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
     }
     destroy() {
         Signal.disconnect(this, 'notify::visible');
@@ -399,7 +400,7 @@ export default GObject.registerClass(class SensorsHeader extends Header {
         if (this.tooltipMenu) {
             Config.clear(this.tooltipMenu);
             Utils.sensorsMonitor.unlisten(this.tooltipMenu);
-            this.tooltipMenu.close(false);
+            this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
             Main.uiGroup.remove_child(this.tooltipMenu.actor);
             this.tooltipMenu.destroy();
             this.tooltipMenu = undefined;

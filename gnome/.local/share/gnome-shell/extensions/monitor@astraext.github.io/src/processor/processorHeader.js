@@ -26,6 +26,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import Header from '../header.js';
 import Config from '../config.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import ProcessorMenu from './processorMenu.js';
 import ProcessorGraph from './processorGraph.js';
 import ProcessorBars from './processorBars.js';
@@ -44,6 +45,8 @@ export default GObject.registerClass(class ProcessorHeader extends Header {
         Utils.processorMonitor
             .getCpuTopologyAsync()
             .then(() => {
+            if (!Utils.runtimeActive)
+                return;
             if (this.bars && Config.get_boolean('processor-header-bars-core'))
                 this.rebuildBars();
         })
@@ -363,7 +366,7 @@ export default GObject.registerClass(class ProcessorHeader extends Header {
         this.tooltipMenu.addMenuItem(this.tooltipItem);
         Config.connect(this.tooltipMenu, 'changed::processor-header-tooltip', () => {
             if (!Config.get_boolean('processor-header-tooltip'))
-                this.tooltipMenu.close(true);
+                this.tooltipMenu.close(AnimationUtils.getMenuParams(true));
         });
         Utils.processorMonitor.listen(this.tooltipMenu, 'cpuUsage', () => {
             if (!Config.get_boolean('processor-header-tooltip'))
@@ -390,14 +393,14 @@ export default GObject.registerClass(class ProcessorHeader extends Header {
             return;
         if (!Config.get_boolean('processor-header-tooltip'))
             return;
-        this.tooltipMenu.open(false);
+        this.tooltipMenu.open(AnimationUtils.getMenuParams(false));
     }
     hideTooltip() {
         if (!this.tooltipMenu)
             return;
         if (!Config.get_boolean('processor-header-tooltip'))
             return;
-        this.tooltipMenu.close(false);
+        this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
     }
     destroy() {
         Config.clear(this);
@@ -439,7 +442,7 @@ export default GObject.registerClass(class ProcessorHeader extends Header {
         if (this.tooltipMenu) {
             Config.clear(this.tooltipMenu);
             Utils.processorMonitor.unlisten(this.tooltipMenu);
-            this.tooltipMenu.close(false);
+            this.tooltipMenu.close(AnimationUtils.getMenuParams(false));
             Main.uiGroup.remove_child(this.tooltipMenu.actor);
             this.tooltipMenu.destroy();
             this.tooltipMenu = undefined;

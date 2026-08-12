@@ -25,6 +25,9 @@ import CommandSubprocess from './commandSubprocess.js';
 import CommandHelper from './commandHelper.js';
 import XMLParser from './xmlParser.js';
 class Utils {
+    static get runtimeActive() {
+        return !Utils.runtimeStopped;
+    }
     static init({ service, extension, metadata, settings, ProcessorMonitor, GpuMonitor, MemoryMonitor, StorageMonitor, NetworkMonitor, SensorsMonitor, }) {
         if (extension)
             Utils.extension = extension;
@@ -35,20 +38,11 @@ class Utils {
         Utils.resetCommandCaches(new Map());
         Utils.resetHwmonCache();
         Utils.resetUptimeCache();
+        Utils.runtimeStopped = false;
         Utils.debug = Config.get_boolean('debug-mode');
+        Utils.truncateLogOnOpen = Utils.debug && service === 'astra-monitor';
         if (Utils.debug && service === 'astra-monitor') {
             Utils.performanceMap = new Map();
-            try {
-                const log = Utils.getLogFile();
-                if (log) {
-                    if (log.query_exists(null))
-                        log.delete(null);
-                    log.create_readwrite(Gio.FileCreateFlags.REPLACE_DESTINATION, null);
-                }
-            }
-            catch (e) {
-                console.error(e);
-            }
         }
         Utils.configUpdateFixes();
         if (ProcessorMonitor)
@@ -68,12 +62,11 @@ class Utils {
         const updateExplicitZero = () => (Utils.explicitZero = Config.get_boolean('explicit-zero'));
         Config.connect(this, 'changed::explicit-zero', updateExplicitZero);
         updateExplicitZero();
-        const updateExperimentalPsSubprocess = () => {
-            const features = Config.get_json('experimental-features');
-            Utils.experimentalPsSubprocess = features?.includes('ps_subprocess') ?? false;
+        const updateLegacySubprocess = () => {
+            Utils.useLegacySubprocess = Config.get_boolean('legacy-subprocess');
         };
-        Config.connect(this, 'changed::experimental-features', updateExperimentalPsSubprocess);
-        updateExperimentalPsSubprocess();
+        Config.connect(this, 'changed::legacy-subprocess', updateLegacySubprocess);
+        updateLegacySubprocess();
     }
     static resetCommandCaches(commandsPath) {
         Utils.commandsPath = commandsPath;
@@ -96,24 +89,7 @@ class Utils {
         Utils.uptimeTimer = 0;
     }
     static clear() {
-        for (const task of Utils.lowPriorityTasks) {
-            try {
-                GLib.source_remove(task);
-            }
-            catch (e) {
-                Utils.warn('Error removing lowPriorityTask', e instanceof Error ? e : undefined);
-            }
-        }
-        Utils.lowPriorityTasks = [];
-        for (const task of Utils.timeoutTasks) {
-            try {
-                GLib.source_remove(task);
-            }
-            catch (e) {
-                Utils.warn('Error removing timeoutTask', e instanceof Error ? e : undefined);
-            }
-        }
-        Utils.timeoutTasks = [];
+        Utils.stopRuntime();
         try {
             Config.clearAll();
         }
@@ -126,28 +102,12 @@ class Utils {
         catch (e) {
             Utils.error('Error clearing signal', e);
         }
-        try {
-            Utils.processorMonitor?.stop();
-            Utils.processorMonitor?.destroy();
-            Utils.gpuMonitor?.stop();
-            Utils.gpuMonitor?.destroy();
-            Utils.memoryMonitor?.stop();
-            Utils.memoryMonitor?.destroy();
-            Utils.storageMonitor?.stop();
-            Utils.storageMonitor?.destroy();
-            Utils.networkMonitor?.stop();
-            Utils.networkMonitor?.destroy();
-            Utils.sensorsMonitor?.stop();
-            Utils.sensorsMonitor?.destroy();
-        }
-        catch (e) {
-            Utils.error('Error stopping or destroying monitor', e);
-        }
+        Utils.clearLogResources();
         Utils.ready = false;
         Utils.debug = false;
         Utils.GTop = undefined;
         Utils.explicitZero = false;
-        Utils.experimentalPsSubprocess = undefined;
+        Utils.useLegacySubprocess = undefined;
         Utils.xmlParser = null;
         Utils.performanceMap = null;
         Utils.resetCommandCaches(null);
@@ -163,13 +123,33 @@ class Utils {
         Utils.metadata = undefined;
         Config.settings = undefined;
         if (Utils.uptimeTimer) {
-            try {
-                GLib.source_remove(Utils.uptimeTimer);
-                Utils.uptimeTimer = 0;
-            }
-            catch (e) {
-                Utils.warn('Error removing uptime timer', e instanceof Error ? e : undefined);
-            }
+            GLib.source_remove(Utils.uptimeTimer);
+            Utils.uptimeTimer = 0;
+        }
+    }
+    static stopRuntime() {
+        if (Utils.runtimeStopped)
+            return;
+        Utils.runtimeStopped = true;
+        for (const task of Utils.lowPriorityTasks) {
+            GLib.source_remove(task);
+        }
+        Utils.lowPriorityTasks = [];
+        for (const task of Utils.timeoutTasks) {
+            GLib.source_remove(task);
+        }
+        Utils.timeoutTasks = [];
+        const monitors = [
+            Utils.processorMonitor,
+            Utils.gpuMonitor,
+            Utils.memoryMonitor,
+            Utils.storageMonitor,
+            Utils.networkMonitor,
+            Utils.sensorsMonitor,
+        ];
+        for (const monitor of monitors) {
+            monitor?.stop();
+            monitor?.destroy();
         }
     }
     static async initializeGTop() {
@@ -220,32 +200,70 @@ class Utils {
         }
     }
     static getLogFile() {
+        if (Utils.logFile)
+            return Utils.logFile;
         try {
             const dataDir = GLib.get_user_cache_dir();
             const destination = GLib.build_filenamev([dataDir, 'astra-monitor', 'debug.log']);
             const destinationFile = Gio.File.new_for_path(destination);
             if (destinationFile &&
-                GLib.mkdir_with_parents(destinationFile.get_parent().get_path(), 0o755) === 0)
-                return destinationFile;
+                GLib.mkdir_with_parents(destinationFile.get_parent().get_path(), 0o755) === 0) {
+                Utils.logFile = destinationFile;
+                return Utils.logFile;
+            }
         }
         catch (e) {
             console.error(e);
         }
         return null;
     }
-    static logToFile(message) {
+    static getLogOutputStream() {
+        if (Utils.logOutputStream)
+            return Utils.logOutputStream;
         const log = Utils.getLogFile();
-        if (log) {
-            try {
-                const date = new Date();
-                const time = date.toISOString().split('T')[1].slice(0, -1);
-                const outputStream = log.append_to(Gio.FileCreateFlags.NONE, null);
-                const buffer = new TextEncoder().encode(`${time} - ${message}\n`);
-                outputStream.write_all(buffer, null);
-            }
-            catch (e) {
-                console.error(e);
-            }
+        if (!log)
+            return null;
+        if (Utils.truncateLogOnOpen && log.query_exists(null))
+            log.delete(null);
+        Utils.logOutputStream = log.append_to(Gio.FileCreateFlags.NONE, null);
+        Utils.truncateLogOnOpen = false;
+        return Utils.logOutputStream;
+    }
+    static closeLogOutputStream() {
+        const outputStream = Utils.logOutputStream;
+        Utils.logOutputStream = null;
+        if (!outputStream)
+            return;
+        try {
+            outputStream.close(null);
+        }
+        catch (e) {
+            console.error(e);
+        }
+    }
+    static clearLogResources() {
+        Utils.closeLogOutputStream();
+        Utils.logFile = null;
+        Utils.logEncoder = null;
+        Utils.truncateLogOnOpen = false;
+    }
+    static logToFile(message) {
+        if (!Utils.debug)
+            return;
+        try {
+            const outputStream = Utils.getLogOutputStream();
+            if (!outputStream)
+                return;
+            if (!Utils.logEncoder)
+                Utils.logEncoder = new TextEncoder();
+            const date = new Date();
+            const time = date.toISOString().split('T')[1].slice(0, -1);
+            const buffer = Utils.logEncoder.encode(`${time} - ${message}\n`);
+            outputStream.write_all(buffer, null);
+        }
+        catch (e) {
+            console.error(e);
+            Utils.closeLogOutputStream();
         }
     }
     static get startupDelay() {
@@ -582,6 +600,8 @@ class Utils {
             collecting = collect;
             collecting--;
         }
+        if (result.length > 0)
+            results.push(result.join('\n'));
         return results;
     }
     static hasAmdGpuTop() {
@@ -1255,7 +1275,7 @@ class Utils {
     }
     static getMonitoredGPUs() {
         const gpusData = Config.get_json('gpu-data');
-        if (!gpusData)
+        if (!Array.isArray(gpusData))
             return [];
         const gpus = Utils.getGPUsList();
         return gpusData.filter((gpuData) => gpus.some((gpu) => Utils.isSameGpu(gpu, gpuData)));
@@ -1648,10 +1668,10 @@ class Utils {
         });
     }
     static runAsyncCommand(command, task) {
-        if (Utils.experimentalPsSubprocess) {
-            return CommandSubprocess.run(command, task);
+        if (Utils.useLegacySubprocess) {
+            return CommandHelper.runCommand(command, task);
         }
-        return CommandHelper.runCommand(command, task);
+        return CommandSubprocess.run(command, task);
     }
     static async runAsyncCommandOptional(command, task) {
         try {
@@ -1997,16 +2017,20 @@ class Utils {
     }
     static lowPriorityTask(callback, priority = GLib.PRIORITY_DEFAULT_IDLE) {
         const task = GLib.idle_add(priority, () => {
-            callback();
             Utils.lowPriorityTasks = Utils.lowPriorityTasks.filter(id => id !== task);
+            if (!Utils.runtimeActive)
+                return GLib.SOURCE_REMOVE;
+            callback();
             return GLib.SOURCE_REMOVE;
         });
         Utils.lowPriorityTasks.push(task);
     }
     static timeoutTask(callback, timeout, priority = GLib.PRIORITY_DEFAULT) {
         const task = GLib.timeout_add(priority, timeout, () => {
-            callback();
             Utils.timeoutTasks = Utils.timeoutTasks.filter(id => id !== task);
+            if (!Utils.runtimeActive)
+                return GLib.SOURCE_REMOVE;
+            callback();
             return GLib.SOURCE_REMOVE;
         });
         Utils.timeoutTasks.push(task);
@@ -2048,28 +2072,44 @@ class Utils {
             Config.set('headers-height-override', height, 'int');
             Config.set('headers-height', 0, 'int');
         }
+        gpuMain = Config.get_json('gpu-main');
+        let gpuData = Config.get_json('gpu-data');
+        if (!Array.isArray(gpuData)) {
+            gpuData = [];
+            if (gpuMain && gpuMain.domain) {
+                if (!gpuMain.domain.includes(':'))
+                    gpuMain.domain = '0000:' + gpuMain.domain;
+                gpuMain.monitor = true;
+                gpuData.push(gpuMain);
+            }
+            Config.set('gpu-data', gpuData, 'json');
+        }
         let profiles = Config.get_json('profiles');
+        if (profiles) {
+            const currentProfile = Config.get_string('current-profile') || 'default';
+            const profile = profiles[currentProfile];
+            if (profile && Object.prototype.hasOwnProperty.call(profile, 'gpu-data')) {
+                let profileGpuData = null;
+                try {
+                    profileGpuData = JSON.parse(profile['gpu-data']);
+                }
+                catch (_e) {
+                    profileGpuData = null;
+                }
+                if (!Array.isArray(profileGpuData)) {
+                    profile['gpu-data'] = Config.get_string('gpu-data');
+                    Config.set('profiles', profiles, 'json');
+                }
+            }
+        }
         if (!profiles) {
             profiles = {};
             const currentProfile = Config.get_string('current-profile') || 'default';
             profiles[currentProfile] = Config.getCurrentSettingsData(Config.globalSettingsKeys);
             Config.set('profiles', profiles, 'json');
         }
-        gpuMain = Config.get_json('gpu-main');
-        if (gpuMain && gpuMain.domain) {
-            let gpuData = Config.get_json('gpu-data');
-            if (!gpuData) {
-                gpuData = [];
-                if (!gpuMain.domain.includes(':'))
-                    gpuMain.domain = '0000:' + gpuMain.domain;
-                gpuMain.monitor = true;
-                gpuData.push(gpuMain);
-                Config.set('gpu-data', gpuData, 'json');
-            }
-        }
         let experimentalFeatures = Config.get_json('experimental-features');
         if (!experimentalFeatures) {
-            Config.set('experimental-features', [], 'json');
             experimentalFeatures = [];
         }
         experimentalFeatures = experimentalFeatures.filter((feature) => Config.experimentalFeatures.includes(feature));
@@ -2210,6 +2250,10 @@ class Utils {
     }
 }
 Utils.debug = false;
+Utils.logFile = null;
+Utils.logOutputStream = null;
+Utils.logEncoder = null;
+Utils.truncateLogOnOpen = false;
 Utils.defaultMonitors = ['processor', 'gpu', 'memory', 'storage', 'network', 'sensors'];
 Utils.defaultIndicators = {
     processor: ['icon', 'bar', 'graph', 'percentage', 'frequency'],
@@ -2230,6 +2274,7 @@ Utils.defaultIndicators = {
 };
 Utils.xmlParser = null;
 Utils.ready = false;
+Utils.runtimeStopped = true;
 Utils.performanceMap = null;
 Utils.lastCachedHwmonDevices = 0;
 Utils.cachedHwmonDevices = new Map();
@@ -2281,7 +2326,7 @@ Utils.hwmonPromise = null;
 Utils.sensorsPrefix = ['temp', 'fan', 'in', 'power', 'curr', 'energy', 'pwm', 'freq'];
 Utils.cachedUptimeSeconds = 0;
 Utils.uptimeTimer = 0;
-Utils.experimentalPsSubprocess = undefined;
+Utils.useLegacySubprocess = undefined;
 Utils.lowPriorityTasks = [];
 Utils.timeoutTasks = [];
 Utils.nethogsCaps = undefined;

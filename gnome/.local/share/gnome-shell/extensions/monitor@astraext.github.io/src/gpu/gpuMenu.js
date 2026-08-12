@@ -20,6 +20,7 @@
 import { gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import MenuBase from '../menu.js';
 import Utils from '../utils/utils.js';
+import AnimationUtils from '../utils/animationUtils.js';
 import Config from '../config.js';
 import GpuMenuComponent from './gpuMenuComponent.js';
 export default class GpuMenu extends MenuBase {
@@ -53,7 +54,7 @@ export default class GpuMenu extends MenuBase {
         }
     }
     destroy() {
-        this.close(false);
+        this.close(AnimationUtils.getMenuParams(false));
         this.onClose();
         Config.clear(this);
         Utils.gpuMonitor.unlisten(this);
