@@ -10,6 +10,17 @@
         down, and lift it when the session is paused or stopped.
       </description>
     </key>
+    <key name="drop-connections" type="b">
+      <default>true</default>
+      <summary>Drop live connections when blocking starts</summary>
+      <description>
+        Tear down existing connections to the blocked sites as the block goes
+        up. Without this a tab that is already talking to a site keeps working
+        on its open connection, since reloading it never looks the name up
+        again. Connections to addresses shared with other services (most
+        Google properties) are dropped too, and reconnect straight away.
+      </description>
+    </key>
     <key name="manual-block" type="b">
       <default>false</default>
       <summary>Block distracting sites now</summary>

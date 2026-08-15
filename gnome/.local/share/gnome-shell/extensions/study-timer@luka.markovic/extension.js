@@ -110,6 +110,7 @@ class StudyTimerIndicator extends PanelMenu.Button {
     _setupBlocking() {
         this._blocker = new Blocker({
             onError: e => this._onBlockingFailed(e),
+            dropConnections: () => this._settings.get_boolean('drop-connections'),
         });
         // Start from what /etc/hosts actually says: if a previous session left
         // a block behind, the first sync is what lifts it.

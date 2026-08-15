@@ -31,8 +31,9 @@ export function blockApplied() {
  * order and strand the block in the wrong state.
  */
 export class Blocker {
-    constructor({onError} = {}) {
+    constructor({onError, dropConnections} = {}) {
         this._onError = onError ?? (() => {});
+        this._dropConnections = dropConnections ?? (() => true);
         this._queue = Promise.resolve();
         this._destroyed = false;
 
@@ -86,9 +87,12 @@ export class Blocker {
         if (blocked && hosts.length === 0)
             throw new Error('the blocklist is empty — nothing to block');
 
+        const argv = ['pkexec', HELPER_PATH, blocked ? 'apply' : 'clear'];
+        if (blocked && !this._dropConnections())
+            argv.push('--keep-connections');
+
         const proc = Gio.Subprocess.new(
-            ['pkexec', HELPER_PATH, blocked ? 'apply' : 'clear'],
-            Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            argv, Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
 
         const stderr = await this._communicate(
             proc, blocked ? `${hosts.join('\n')}\n` : null);

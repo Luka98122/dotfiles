@@ -35,7 +35,9 @@ sudo ~/dotfiles/scripts/setup-study-timer-block.sh     # uninstall: ... setup-st
 
 That drops a root helper in `/usr/local/libexec/study-timer-hosts` and a polkit action allowing the local active session to run it without a password. The helper only ever points *validated domain names* at `127.0.0.1` inside its own marked-off block in `/etc/hosts`, and takes no paths or addresses from its caller — the same "grant the narrow thing once, stay password-free after" idea as `setup-power-perms.sh`.
 
-Caveats: a browser tab that already resolved a blocked domain may keep working until its DNS cache expires, and a browser using DNS-over-HTTPS in strict mode ignores `/etc/hosts` entirely.
+**Making the block bite immediately.** `/etc/hosts` alone only affects the *next* lookup, and a tab that is already talking to a site never does one — it reloads over its existing connection. So as the block goes up the helper also resolves the blocked names (before rewriting the file, while they still answer honestly), flushes the system resolver cache, and tears down live TCP/UDP connections to those addresses with `ss -K`. That last step is switchable in preferences (*Drop live connections*), since addresses shared with other services — most Google properties — get dropped alongside and have to reconnect.
+
+Caveats: browsers keep a private DNS cache that nothing outside them can flush. Chromium-based ones watch `/etc/hosts` and drop theirs when it changes; Firefox expires its own after about a minute, so a stubborn tab may need a hard reload. A browser using DNS-over-HTTPS in strict mode ignores `/etc/hosts` entirely.
 
 ## Updating Hanabi
 When updating the upstream Hanabi extension, the memory-leak patch in `renderer/renderer.js` must be re-applied. The two modified functions are `setFilePath()` and `setAutoWallpaper()`. Diff the local copy against upstream to port the changes.

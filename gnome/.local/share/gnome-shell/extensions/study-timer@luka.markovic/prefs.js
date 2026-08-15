@@ -59,6 +59,13 @@ export default class StudyTimerPreferences extends ExtensionPreferences {
         settings.bind('manual-block', manual, 'active', Gio.SettingsBindFlags.DEFAULT);
         group.add(manual);
 
+        const drop = new Adw.SwitchRow({
+            title: 'Drop live connections',
+            subtitle: 'Cuts open connections to the blocked sites as the block goes up, so an already-loaded tab can\'t keep going on its existing one. Also flushes the system DNS cache.',
+        });
+        settings.bind('drop-connections', drop, 'active', Gio.SettingsBindFlags.DEFAULT);
+        group.add(drop);
+
         return group;
     }
 
