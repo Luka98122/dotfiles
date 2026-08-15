@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.study-timer"
+          path="/org/gnome/shell/extensions/study-timer/">
+    <key name="block-during-session" type="b">
+      <default>true</default>
+      <summary>Block distracting sites while a session runs</summary>
+      <description>
+        Apply the blocklist automatically whenever a study session is counting
+        down, and lift it when the session is paused or stopped.
+      </description>
+    </key>
+    <key name="manual-block" type="b">
+      <default>false</default>
+      <summary>Block distracting sites now</summary>
+      <description>
+        Keep the blocklist applied regardless of the timer. Mirrors the
+        "Block distracting sites" switch in the panel menu.
+      </description>
+    </key>
+  </schema>
+</schemalist>

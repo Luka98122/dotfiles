@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# study-timer-hosts — root side of the Study Timer website blocker.
+#
+# Owns one marked-off block in /etc/hosts and nothing else:
+#
+#   # >>> study-timer >>>
+#   127.0.0.1 x.com
+#   ...
+#   # <<< study-timer <<<
+#
+# Usage (always through pkexec, never directly):
+#   study-timer-hosts apply   < list-of-domains
+#   study-timer-hosts clear
+#
+# Installed by ~/dotfiles/scripts/setup-study-timer-block.sh, which also drops
+# the polkit action that lets the local active session run it without a
+# password prompt. That means any process in the session can call this, so it
+# takes NO paths or addresses from its caller: the only thing it accepts is a
+# list of domain names on stdin, each of which is validated and can only ever
+# be pointed at the loopback address.
+set -euo pipefail
+
+HOSTS=/etc/hosts
+BEGIN='# >>> study-timer >>>'
+END='# <<< study-timer <<<'
+MAX_ENTRIES=500
+
+die() { echo "study-timer-hosts: $*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || die "must run as root (via pkexec)"
+
+mode=${1:-}
+case "$mode" in
+    apply|clear) ;;
+    *) die "usage: study-timer-hosts apply|clear   (apply reads domains on stdin)" ;;
+esac
+
+[ -f "$HOSTS" ] || die "$HOSTS is missing"
+
+# A hostname, lowercased: dot-separated labels of a-z 0-9 and dashes, no
+# leading or trailing dash, at least two labels.
+label='[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?'
+host_re="^${label}(\.${label})+$"
+
+entries=()
+add_entry() {
+    local host=$1
+    for existing in ${entries[@]+"${entries[@]}"}; do
+        [ "$existing" = "$host" ] && return 0
+    done
+    entries+=("$host")
+}
+
+if [ "$mode" = apply ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%%#*}
+        line=${line//[[:space:]]/}
+        line=${line,,}
+        [ -n "$line" ] || continue
+
+        if [ ${#line} -gt 253 ] || ! [[ $line =~ $host_re ]]; then
+            echo "study-timer-hosts: skipping invalid domain: $line" >&2
+            continue
+        fi
+
+        add_entry "$line"
+        [[ $line == www.* ]] || add_entry "www.$line"
+
+        [ ${#entries[@]} -lt $MAX_ENTRIES ] || die "too many entries (max $MAX_ENTRIES)"
+    done
+
+    [ ${#entries[@]} -gt 0 ] || die "no valid domains on stdin"
+fi
+
+tmp=$(mktemp /etc/.study-timer-hosts.XXXXXX)
+trap 'rm -f "$tmp"' EXIT
+
+# Start from the file minus any block we wrote earlier, so re-applying and
+# clearing are both just "drop the old block".
+awk -v b="$BEGIN" -v e="$END" '
+    $0 == b { skip = 1; next }
+    $0 == e { skip = 0; next }
+    !skip
+' "$HOSTS" > "$tmp"
+
+if [ "$mode" = apply ]; then
+    {
+        echo "$BEGIN"
+        for host in "${entries[@]}"; do
+            echo "127.0.0.1	$host"
+            echo "::1	$host"
+        done
+        echo "$END"
+    } >> "$tmp"
+fi
+
+chown root:root "$tmp"
+chmod 644 "$tmp"
+mv -f "$tmp" "$HOSTS"
+trap - EXIT
+
+# Names already resolved stay cached until they expire; clear what we can.
+resolvectl flush-caches >/dev/null 2>&1 || true
+
+if [ "$mode" = apply ]; then
+    echo "study-timer-hosts: blocking ${#entries[@]} entries"
+else
+    echo "study-timer-hosts: block cleared"
+fi

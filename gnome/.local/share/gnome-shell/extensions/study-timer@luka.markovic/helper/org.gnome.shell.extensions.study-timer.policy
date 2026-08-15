@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Study Timer</vendor>
+  <vendor_url>https://github.com/luka98122/dotfiles</vendor_url>
+
+  <action id="org.gnome.shell.extensions.study-timer.hosts">
+    <description>Block or unblock distracting websites</description>
+    <message>Authentication is required to update the website blocklist</message>
+
+    <!-- The local, active session runs this without a prompt: a study timer
+         that stops to ask for a password twice per session is a study timer
+         you stop using. Remote and idle sessions still need admin auth. -->
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/study-timer-hosts</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

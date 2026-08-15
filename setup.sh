@@ -67,6 +67,15 @@ stow gnome
 
 # Compile GSettings schemas (e.g. Hanabi) so extension settings resolve.
 glib-compile-schemas ~/.local/share/glib-2.0/schemas/ 2>/dev/null || true
+# Study Timer keeps its schema inside the extension, where GNOME looks for it.
+glib-compile-schemas ~/dotfiles/gnome/.local/share/gnome-shell/extensions/study-timer@luka.markovic/schemas/ 2>/dev/null || true
+
+# --- 5b. Study Timer website blocker ---
+# Installs the root helper + polkit action that let the extension edit its own
+# block in /etc/hosts without a password prompt. See scripts/setup-study-timer-block.sh.
+echo "Installing the Study Timer website blocker helper..."
+sudo ~/dotfiles/scripts/setup-study-timer-block.sh || \
+    echo "  (skipped -- run 'sudo ~/dotfiles/scripts/setup-study-timer-block.sh' later)"
 
 # --- 6. Restore GNOME Extension Settings ---
 echo "Restoring GNOME extension dconf settings..."

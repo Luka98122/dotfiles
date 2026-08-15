@@ -10,6 +10,9 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
+import {blocklistFile} from './blocklist.js';
+import {Blocker, helperInstalled} from './blocker.js';
+
 const State = {
     IDLE: 'idle',
     RUNNING: 'running',
@@ -60,9 +63,10 @@ function describeDuration(ms) {
 
 const StudyTimerIndicator = GObject.registerClass(
 class StudyTimerIndicator extends PanelMenu.Button {
-    _init() {
+    _init(extension) {
         super._init(0.5, 'Study Timer');
 
+        this._extension = extension;
         this._state = State.IDLE;
         this._endsAt = 0;         // wall clock ms, while running
         this._pausedLeft = 0;     // ms left, while paused
@@ -72,6 +76,7 @@ class StudyTimerIndicator extends PanelMenu.Button {
         this._desktopSettings = new Gio.Settings({
             schema_id: 'org.gnome.desktop.interface',
         });
+        this._settings = extension.getSettings();
 
         const box = new St.BoxLayout({style_class: 'study-timer-box'});
         this._icon = new St.Icon({
@@ -88,6 +93,7 @@ class StudyTimerIndicator extends PanelMenu.Button {
         box.add_child(this._timerLabel);
         this.add_child(box);
 
+        this._setupBlocking();
         this._buildMenu();
         this._sync();
         this._scheduleTick();
@@ -95,6 +101,41 @@ class StudyTimerIndicator extends PanelMenu.Button {
         // Only the menu's "ends at" line is clock-formatted now.
         this._formatChangedId = this._desktopSettings.connect(
             'changed::clock-format', () => this._sync());
+    }
+
+    /**
+     * The blocker mirrors whatever _sync() computes; it only shells out to the
+     * root helper when that answer actually changes.
+     */
+    _setupBlocking() {
+        this._blocker = new Blocker({
+            onError: e => this._onBlockingFailed(e),
+        });
+        // Start from what /etc/hosts actually says: if a previous session left
+        // a block behind, the first sync is what lifts it.
+        this._blockWanted = this._blocker.blocked;
+
+        this._settingsChangedIds = ['block-during-session', 'manual-block'].map(
+            key => this._settings.connect(`changed::${key}`, () => this._sync()));
+
+        // Picks up edits made in preferences, or in the file by hand.
+        this._blocklistMonitor = blocklistFile().monitor_file(
+            Gio.FileMonitorFlags.NONE, null);
+        this._blocklistChangedId = this._blocklistMonitor.connect(
+            'changed', () => this._queueBlocklistRefresh());
+        this._refreshId = 0;
+    }
+
+    /** One save fires several monitor events; re-push the list only once. */
+    _queueBlocklistRefresh() {
+        if (this._refreshId)
+            GLib.Source.remove(this._refreshId);
+
+        this._refreshId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 800, () => {
+            this._refreshId = 0;
+            this._blocker.refresh();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _buildMenu() {
@@ -131,6 +172,21 @@ class StudyTimerIndicator extends PanelMenu.Button {
         this._stopItem = new PopupMenu.PopupMenuItem('Stop');
         this._stopItem.connect('activate', () => this.stopTimer());
         this.menu.addMenuItem(this._stopItem);
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        this._blockItem = new PopupMenu.PopupSwitchMenuItem(
+            'Block distracting sites', this._settings.get_boolean('manual-block'));
+        this._blockItem.connect('toggled', (_item, active) =>
+            this._settings.set_boolean('manual-block', active));
+        this.menu.addMenuItem(this._blockItem);
+
+        const prefsItem = new PopupMenu.PopupMenuItem('Preferences');
+        prefsItem.connect('activate', () => {
+            this.menu.close();
+            this._extension.openPreferences();
+        });
+        this.menu.addMenuItem(prefsItem);
     }
 
     /** A non-selectable menu row holding side-by-side push buttons. */
@@ -273,6 +329,44 @@ class StudyTimerIndicator extends PanelMenu.Button {
 
         this._syncTimerLabel();
         this._syncMenu();
+        this._syncBlocking();
+    }
+
+    /**
+     * Blocked while the switch is on, or while a session is actually counting
+     * down — a paused session is a break, so the sites come back.
+     */
+    _syncBlocking() {
+        const manual = this._settings.get_boolean('manual-block');
+        const counting = this._state === State.RUNNING || this._state === State.OVERTIME;
+        const wanted = manual ||
+            (counting && this._settings.get_boolean('block-during-session'));
+
+        this._blockItem.setToggleState(manual);
+
+        if (wanted === this._blockWanted)
+            return;
+
+        this._blockWanted = wanted;
+        this._blocker.setBlocked(wanted);
+    }
+
+    /**
+     * Blocking is a nicety, not the point of the timer: if the helper is
+     * missing or refuses, say so once and let the session carry on.
+     */
+    _onBlockingFailed(error) {
+        logError(error, 'study-timer: blocking failed');
+
+        if (this._blockWarned)
+            return;
+        this._blockWarned = true;
+
+        this._notify(
+            'Website blocking is off',
+            helperInstalled()
+                ? error.message
+                : 'Run this once: sudo ~/dotfiles/scripts/setup-study-timer-block.sh');
     }
 
     /** Idle is the bare icon; a session adds the countdown beside it. */
@@ -396,6 +490,27 @@ class StudyTimerIndicator extends PanelMenu.Button {
     destroy() {
         this._removeTick();
 
+        if (this._refreshId) {
+            GLib.Source.remove(this._refreshId);
+            this._refreshId = 0;
+        }
+
+        if (this._blocklistChangedId) {
+            this._blocklistMonitor.disconnect(this._blocklistChangedId);
+            this._blocklistChangedId = 0;
+        }
+        this._blocklistMonitor?.cancel();
+        this._blocklistMonitor = null;
+
+        for (const id of this._settingsChangedIds ?? [])
+            this._settings.disconnect(id);
+        this._settingsChangedIds = null;
+        this._settings = null;
+
+        // Leaving the shell shouldn't leave the machine blocked.
+        this._blocker?.destroy();
+        this._blocker = null;
+
         if (this._formatChangedId) {
             this._desktopSettings.disconnect(this._formatChangedId);
             this._formatChangedId = 0;
@@ -411,7 +526,7 @@ class StudyTimerIndicator extends PanelMenu.Button {
 
 export default class StudyTimerExtension extends Extension {
     enable() {
-        this._indicator = new StudyTimerIndicator();
+        this._indicator = new StudyTimerIndicator(this);
         // Sit just left of GNOME's own clock in the centre of the panel.
         Main.panel.addToStatusArea(this.uuid, this._indicator, 0, 'center');
     }
