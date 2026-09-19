@@ -133,3 +133,22 @@ export PATH="$HOME/.local/bin:$PATH"
 alias performance="~/dotfiles/scripts/performance.sh"
 alias battery="~/dotfiles/scripts/battery-saver.sh"
 
+codex() {
+    # Generate random RGB values for subtle dark background tinting (e.g., RGB 20-50 range)
+    local r=$((20 + RANDOM % 40))
+    local g=$((20 + RANDOM % 40))
+    local b=$((20 + RANDOM % 40))
+
+    # OSC 11 sets terminal background color (if supported by terminal emulator)
+    printf "\033]11;rgb:%02x/%02x/%02x\007" "$r" "$g" "$b"
+
+    # Set window title with a unique instance ID
+    local session_id=$((1000 + RANDOM % 9000))
+    printf "\033]2;Codex [#%s]\007" "$session_id"
+
+    # Run actual codex binary
+    command codex "$@"
+
+    # Reset background color back to normal upon exit (OSC 111)
+    printf "\033]111\007"
+}
